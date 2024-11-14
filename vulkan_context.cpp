@@ -827,7 +827,7 @@ static bool create_logical_device (VkQueueFlags requested_queue_types)
     // just make sure they are supported first!
   };
 
-  // TODO: fix VkDeviceCreateInfo
+  
   VkDeviceCreateInfo const dci =
   {
     .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -837,12 +837,15 @@ static bool create_logical_device (VkQueueFlags requested_queue_types)
     .pQueueCreateInfos = queue_create_infos.data (),
     //.enabledLayerCount                              // deprecated: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#extendingvulkan-layers-devicelayerdeprecation
     //.ppEnabledLayerNames                            // deprecated
-    .enabledExtensionCount = //??? look above...
-    .ppEnabledExtensionNames = //???
-    .pEnabledFeatures = //???
+    .enabledExtensionCount = (u32)extensions.size(),  //
+    .ppEnabledExtensionNames = extensions.data(),     //
+    .pEnabledFeatures = &device_features              //
   };
 
-  VkResult const result = // TODO: add call to vkCreateDevice here
+  VkResult const result = vkCreateDevice(s_physical_device,     // physicalDevice
+      &dci,                                                     // pCreateInfo
+      VK_NULL_HANDLE,                                           // pAllocator
+      &s_device);                                               // pDevice
 
   if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (s_device))
   {
