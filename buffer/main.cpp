@@ -127,7 +127,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   VkFence fence_compute = VK_NULL_HANDLE;
 
 
-  // TODO: create pipeline
   {
     // describe the descriptors in set 0
     std::array <VkDescriptorSetLayoutBinding, NUM_RESOURCES_COMPUTE_SET_0> const descriptor_set_layout_binding_info_0 =
@@ -239,15 +238,14 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       return -1;
     }
 
-    // TODO: fix array of vulkan_descriptor_set_info
     std::array <vulkan_descriptor_set_info, NUM_SETS_COMPUTE> const descriptor_set_infos =
     {{
       // set 0
       {
-        .desc_pool = //???         // the pool from which to allocate the individual descriptors from
-        .layout = //???            // layout of the descriptor set
-        .set_index = //???         // index of the descriptor set
-        .out_set = //???           // pointer to where to instantiate the descriptor set to
+        .desc_pool = &descriptor_pool_compute,          // the pool from which to allocate the individual descriptors from
+        .layout = &descriptor_set_layouts_compute[0],   // layout of the descriptor set
+        .set_index = 0u,                                // index of the descriptor set
+        .out_set = &desc_set_0_compute                  // pointer to where to instantiate the descriptor set to
       }
       // set 1...
     }};

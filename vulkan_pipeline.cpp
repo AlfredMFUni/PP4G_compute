@@ -215,11 +215,14 @@ bool create_vulkan_descriptor_pool (VkDevice device,
     //.flags = 0u,
     .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
     .maxSets = max_sets,
-    .poolSizeCount = //???
-    .pPoolSizes = //???
+    .poolSizeCount = num_desc_pool_sizes,
+    .pPoolSizes = desc_pool_sizes
   };
 
-  VkResult const result = // TODO: add call to vkCreateDescriptorPool here
+  VkResult const result = vkCreateDescriptorPool(device,  // device
+      &dpci,                                              // pCreateInfo
+      VK_NULL_HANDLE,                                     // pAllocator
+      &out_desc_pool);                                    // pDescriptorPool
 
   if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (out_desc_pool))
   {
