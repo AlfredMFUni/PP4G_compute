@@ -134,19 +134,23 @@ bool create_vulkan_pipeline_compute (VkDevice device,
     //.pSpecializationInfo = VK_NULL_HANDLE
   };
 
-  // TODO: fix VkComputePipelineCreateInfo
   VkComputePipelineCreateInfo const cpci =
   {
     .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
     //.pNext = VK_NULL_HANDLE,
     //.flags = 0u,
-    .stage = //???
-    .layout = //???
+    .stage = pssci,
+    .layout = pipeline_layout
     //.basePipelineHandle = VK_NULL_HANDLE,
     //.basePipelineIndex = 0u
   };
 
-  VkResult const result = // TODO: add call to vkCreateComputePipelines here
+  VkResult const result = vkCreateComputePipelines(device,  // device
+      VK_NULL_HANDLE,                                       // pipeline
+      1u,                                                   // createInfoCount
+      &cpci,                                                // pCreateInfo
+      VK_NULL_HANDLE,                                       // pAllocator
+      &out_pipeline);                                       // pPipelines
 
   if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (out_pipeline))
   {
