@@ -1,0 +1,5 @@
+cmake_bin/
+VulkanSDK/
+temp/
+
+temp.zip

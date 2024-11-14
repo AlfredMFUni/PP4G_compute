@@ -1,0 +1,6 @@
+Debug/
+RelWithDebInfo/
+Release/
+
+*.spv
+*.txt

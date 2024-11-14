@@ -1,0 +1,41 @@
+// compute shader
+#version 430
+
+layout (local_size_x = 256) in;
+
+
+layout (std430, set = 0, binding = 0) readonly buffer input_a_buffer
+{
+  float data [];
+} SBO_input_a;
+
+layout (std430, set = 0, binding = 1) readonly buffer input_b_buffer
+{
+  float data [];
+} SBO_input_b;
+
+layout (std430, set = 0, binding = 2) buffer output_buffer
+{
+  float data [];
+} SBO_output;
+
+layout (std430, set = 0, binding = 3) readonly buffer info_buffer
+{
+  uint num_elements;
+} UBO_info;
+
+layout (push_constant) uniform my_push_constants
+{
+  float multiplier;
+} push_constants;
+
+
+void main ()
+{
+  const uint i = uint (gl_GlobalInvocationID.x); // get thread index
+
+  if (i >= UBO_info.num_elements)
+
+  // fused multiply add
+  SBO_output.data [i] = (SBO_input_a.data [i] * push_constants.multiplier) + SBO_input_b.data [i];
+}
