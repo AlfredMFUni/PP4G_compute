@@ -18,17 +18,20 @@ bool create_vulkan_descriptor_set_layouts (VkDevice device,
   {
     DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_desc_set_layouts [i]));
 
-    // TODO: fix VkDescriptorSetLayoutCreateInfo
+    
     VkDescriptorSetLayoutCreateInfo const dslci =
     {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
       //.pNext = VK_NULL_HANDLE,
       //.flags = 0u,
-      .bindingCount = //???
-      .pBindings = //???
+      .bindingCount = (u32)desc_set_layout_binding_spans[i].size(),
+      .pBindings = desc_set_layout_binding_spans[i].data()
     };
 
-    VkResult const result = // TODO: add call to vkCreateDescriptorSetLayout here
+    VkResult const result = vkCreateDescriptorSetLayout(device,  // device
+        &dslci,                                                  // pCreateInfo
+        VK_NULL_HANDLE,                                          // pAllocator
+        out_desc_set_layouts + i);                               // pSetLayout
 
     if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (out_desc_set_layouts [i]))
     {
@@ -55,13 +58,16 @@ bool create_vulkan_pipeline_layout (VkDevice device,
     .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
     //.pNext = VK_NULL_HANDLE,
     //.flags = 0u,
-    .setLayoutCount = //???
+    .setLayoutCount = num_desc_set_layouts,
     .pSetLayouts = desc_set_layouts,
     .pushConstantRangeCount = num_push_constant_ranges,
-    .pPushConstantRanges = //???
+    .pPushConstantRanges = push_constant_ranges
   };
 
-  VkResult const result = // TODO: add call to vkCreatePipelineLayout here
+  VkResult const result = vkCreatePipelineLayout(device,  // device
+      &plci,                                              // pCreateInfo
+      VK_NULL_HANDLE,                                     // pAllocator
+      &out_pipeline_layout);                              // pPipelineLayout
 
   if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (out_pipeline_layout))
   {
