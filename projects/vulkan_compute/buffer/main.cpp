@@ -260,23 +260,47 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     }
   }
 
-  // TODO: create resources
   {
     if (!create_vulkan_buffer (physical_device, device,
-      NUM_ELEMENTS * ELEMENT_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+      NUM_ELEMENTS * ELEMENT_SIZE, 
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+        VK_SHARING_MODE_EXCLUSIVE, 
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
       buffer_input_0))
     {
       DBG_ASSERT (false);
       return -1;
     }
     if (!create_vulkan_buffer (physical_device, device,
-      NUM_ELEMENTS * ELEMENT_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+      NUM_ELEMENTS * ELEMENT_SIZE, 
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+        VK_SHARING_MODE_EXCLUSIVE, 
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
       buffer_input_1))
     {
       DBG_ASSERT (false);
       return -1;
     }
-    // TODO: create buffers for 'buffer_output' and 'buffer_info'
+    if (!create_vulkan_buffer(physical_device, device,
+        NUM_ELEMENTS * ELEMENT_SIZE,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        buffer_output))
+    {
+        DBG_ASSERT(false);
+        return -1;
+    }
+    if (!create_vulkan_buffer(physical_device, device,
+        sizeof(compute_UBO_info_buffer),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        buffer_info))
+    {
+        DBG_ASSERT(false);
+        return -1;
+    }
   }
   // TODO: bind resources to descriptor set
   {
@@ -399,12 +423,31 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       DBG_ASSERT (false);
       return -1;
     }
-
-    // TODO: fill 'buffer_input_1.memory' with random numbers
-
+    if (!map_and_unmap_memory(device,
+        buffer_input_1.memory, [&rd, &distribution](void* mapped_memory)
+        {
+            f32* data = (f32*)mapped_memory;
+            for (u32 i = 0u; i < NUM_ELEMENTS; ++i)
+            {
+                data[i] = distribution(rd);
+            }
+        }))
+    {
+        DBG_ASSERT(false);
+        return -1;
+    }
     // no need to set/initialise 'buffer_output' as its content will be completely overwritten by the compute shader
 
-    // TODO: fill 'buffer_info.memory' with 'NUM_ELEMENTS'
+    if (!map_and_unmap_memory(device,
+        buffer_info.memory, [&rd, &distribution](void* mapped_memory)
+        {
+            u32* data = (u32*)mapped_memory;
+            (*data) = NUM_ELEMENTS;
+        }))
+    {
+        DBG_ASSERT(false);
+        return -1;
+    }
   }
 
   // TODO: RECORD COMMAND BUFFER
