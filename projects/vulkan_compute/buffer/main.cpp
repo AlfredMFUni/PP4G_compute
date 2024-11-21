@@ -150,13 +150,15 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // an SBO (output)
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .pImmutableSamplers = VK_NULL_HANDLE},
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_0_UBO_INFO,                // at binding point 3 we have
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // an UBO (input)
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .pImmutableSamplers = VK_NULL_HANDLE}
+        .pImmutableSamplers = VK_NULL_HANDLE
+      }
     };
     // group up all descriptor layout descriptions
     std::array <std::span <const VkDescriptorSetLayoutBinding>, NUM_SETS_COMPUTE> const descriptor_set_layout_bindings =
@@ -330,7 +332,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       }
     };
 
-    // TODO: fill in the missing parts of the VkWriteDescriptorSets
     VkWriteDescriptorSet const write_descriptors [NUM_RESOURCES_COMPUTE_SET_0] =
     {
       // desc_set_0_compute
@@ -461,7 +462,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     }
   }
 
-  // TODO: RECORD COMMAND BUFFER
+ 
   {
     if (!begin_command_buffer (command_buffer_compute, 0u))
     {
@@ -470,27 +471,40 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     }
     {
       // any compute related command after this point is attached to this pipeline (on this command buffer)
-
-      // TODO: call vkCmdBindPipeline
+        vkCmdBindPipeline(command_buffer_compute,  // Command Buffer
+            VK_PIPELINE_BIND_POINT_COMPUTE,        // Pipeline Bind Point
+            pipeline_compute);                     // Pipeline
 
       // bind descriptor set - buffer_input_0 + buffer_input_1 + buffer_output + buffer_info
-
-      // TODO: bind our DSI (desc_set_0_compute.desc_set) to the pipeline
+        vkCmdBindDescriptorSets(command_buffer_compute, //  commandBufffer
+            VK_PIPELINE_BIND_POINT_COMPUTE,             //  pipelineBindPoint
+            pipeline_layout_compute,                    //  layout
+            desc_set_0_compute.set_index,               //  firstSet
+            1u,                                         //  descriptorSetCount
+            &desc_set_0_compute.desc_set,               //  pDescriptorSets
+            0u,                                         //  dynamicOffsetCount
+            VK_NULL_HANDLE);                            //  pDynamicOffsets
 
       compute_push_constants const data =
       {
         .multiplier = MULTIPLIER
       };
 
-      // TODO: call vkCmdPushConstants
-
+      vkCmdPushConstants(command_buffer_compute, // commandBuffer
+          pipeline_layout_compute,               // layout
+          VK_SHADER_STAGE_COMPUTE_BIT,           // stageFlags
+          0u,                                    // offset
+          sizeof(compute_push_constants),        // size
+          &data);                                // pValues
 
       // trigger compute shader
       u32 const thread_group_dim = 256u; // this is set in the shader
 
-      // TODO: calculate group_count_x
+      //                           Integer division ceiling
+      u32 const group_count_x = (NUM_ELEMENTS + thread_group_dim -1u) / thread_group_dim;
 
-      // TODO: call vkCmdDispatch
+      vkCmdDispatch(command_buffer_compute, // commandBuffer
+          group_count_x, 1u, 1u);           // Group count X, Y, and Z
     }
     if (!end_command_buffer (command_buffer_compute))
     {
@@ -501,8 +515,13 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   // TODO: SUBMIT
   {
-    // TODO: call vkResetFences
-
+      if (vkResetFences(device, // device
+          1u,                   // fenceCount
+          &fence_compute) < 0)  // pFences
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
 
     // submit compute commands
     VkSubmitInfo const submit_info =
@@ -527,7 +546,15 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
     // wait for fence to be triggered via vkQueueSubmit (slow!)
 
-    // TODO: call vkWaitForFences
+    if (vkWaitForFences(device, // device
+        1u,                      // fenceCount
+        &fence_compute,          // pFences
+        VK_TRUE,                 // waitAll
+        UINT64_MAX) < 0)         // timeout
+    {
+        DBG_ASSERT(false);
+        return -1;
+    }
   }
 
 
