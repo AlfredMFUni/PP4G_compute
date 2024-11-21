@@ -1144,7 +1144,10 @@ bool create_vulkan_command_pool (VkQueueFlags requested_queue_type, VkCommandPoo
     .queueFamilyIndex = family.value ()
   };
 
-  VkResult const result = // TODO: add call to vkCreateCommandPool here
+  VkResult const result = vkCreateCommandPool(s_device, // device
+      &cpci,                                            // pCreateInfo
+      VK_NULL_HANDLE,                                   // pAllocator
+      &out_command_pool);                               // pCommandPool
 
   if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (out_command_pool))
   {
@@ -1161,7 +1164,14 @@ bool create_vulkan_command_buffers (u32 num, VkCommandPool command_pool, VkComma
   DBG_ASSERT (out_command_buffers != nullptr);
 
 
-  // TODO: create an instance of 'VkCommandBufferAllocateInfo' called 'cbai'
+  VkCommandBufferAllocateInfo const cbai
+  {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      .commandPool = command_pool,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = num,
+  };
   // make sure it is a PRIMARY level command buffer
 
   for (u32 i = 0u; i < num; ++i)

@@ -302,7 +302,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         return -1;
     }
   }
-  // TODO: bind resources to descriptor set
+  // Bind resources to descriptor set
   {
     // desc_set_0_compute = buffer_input_0, buffer_input_1, buffer_output, buffer_info
 
@@ -337,11 +337,11 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         //.pNext = VK_NULL_HANDLE,
-        .dstSet = //???
+        .dstSet = desc_set_0_compute.desc_set,
         .dstBinding = BINDING_ID_SET_0_SBO_INPUT_0,
         .dstArrayElement = 0u,
         .descriptorCount = 1u,
-        .descriptorType = //???
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .pImageInfo = VK_NULL_HANDLE,
         .pBufferInfo = &buffer_infos [0], // buffer_input_0
         .pTexelBufferView = VK_NULL_HANDLE
@@ -350,27 +350,38 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         //.pNext = VK_NULL_HANDLE,
         .dstSet = desc_set_0_compute.desc_set,
-        .dstBinding = //???
+        .dstBinding = BINDING_ID_SET_0_SBO_INPUT_1,
         .dstArrayElement = 0u,
         .descriptorCount = 1u,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .pImageInfo = VK_NULL_HANDLE,
-        .pBufferInfo = //???             // buffer_input_1
+        .pBufferInfo = &buffer_infos[1], // buffer_input_1
         .pTexelBufferView = VK_NULL_HANDLE
       },
       {
-        .sType = //???
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         //.pNext = VK_NULL_HANDLE,
         .dstSet = desc_set_0_compute.desc_set,
         .dstBinding = BINDING_ID_SET_0_SBO_OUTPUT,
-        .dstArrayElement = //???
-        .descriptorCount = //???
-        .descriptorType = //???
+        .dstArrayElement = 0u,
+        .descriptorCount = 1u,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .pImageInfo = VK_NULL_HANDLE,
         .pBufferInfo = &buffer_infos [2], // buffer_output
-        .pTexelBufferView = //???
+        .pTexelBufferView = VK_NULL_HANDLE
       },
-      // TODO: Oops. The VkWriteDescriptorSet for 'buffer_info' is completely missing
+      {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        //.pNext = VK_NULL_HANDLE,
+        .dstSet = desc_set_0_compute.desc_set,
+        .dstBinding = BINDING_ID_SET_0_UBO_INFO,
+        .dstArrayElement = 0u,
+        .descriptorCount = 1u,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .pImageInfo = VK_NULL_HANDLE,
+        .pBufferInfo = &buffer_infos[3], // buffer_info
+        .pTexelBufferView = VK_NULL_HANDLE
+      }
     };
 
     vkUpdateDescriptorSets (device, // device
@@ -404,7 +415,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   }
 
 
-  // TODO: SET INPUT/INFO BUFFERS
+  // SET INPUT/INFO BUFFERS
   {
     std::random_device rd;
     std::ranlux24_base re (rd ()); // std::default_engine (std::mersenne_twister_engine) uses 5K bytes on the stack!!!
