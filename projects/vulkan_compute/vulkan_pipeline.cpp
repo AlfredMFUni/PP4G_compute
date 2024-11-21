@@ -255,9 +255,11 @@ bool create_vulkan_descriptor_sets (VkDevice device,
       .pSetLayouts = desc_set_infos [i].layout
     };
 
-    // TODO: fix call to vkAllocateDescriptorSets
-    VkResult const result = vkAllocateDescriptorSets (
-      &desc_set_infos [i].out_set->desc_set);                 // pDescriptorSets
+
+
+    VkResult const result = vkAllocateDescriptorSets (device,   // device
+        &dsai,                                                  // pCreateInfo
+        &desc_set_infos [i].out_set->desc_set);                 // pDescriptorSets
 
     if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (desc_set_infos [i].out_set->desc_set))
     {

@@ -213,7 +213,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     release_vulkan_shader (device,
       shader_module_compute); // don't need shader object now we have the pipeline
   }
-  // TODO: create descriptor sets
+
   // at least one per pipeline...
   {
     // create pool of descriptors from which our descriptor sets will draw from
@@ -227,7 +227,10 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .descriptorCount = 3u
       },
-      // TODO: add VkDescriptorPoolSize for our single UBO descriptor
+      {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1u
+      }
     }};
     if (!create_vulkan_descriptor_pool (device,
       1u, // how many descriptor sets will we make from the sets in the pool?
@@ -256,6 +259,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       return -1;
     }
   }
+
   // TODO: create resources
   {
     if (!create_vulkan_buffer (physical_device, device,
