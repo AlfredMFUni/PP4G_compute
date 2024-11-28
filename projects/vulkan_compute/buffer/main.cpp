@@ -501,7 +501,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       u32 const thread_group_dim = 256u; // this is set in the shader
 
       //                           Integer division ceiling
-      u32 const group_count_x = (NUM_ELEMENTS + thread_group_dim -1u) / thread_group_dim;
+      u32 const group_count_x = ((NUM_ELEMENTS - 1u) / thread_group_dim) + 1;
 
       vkCmdDispatch(command_buffer_compute, // commandBuffer
           group_count_x, 1u, 1u);           // Group count X, Y, and Z

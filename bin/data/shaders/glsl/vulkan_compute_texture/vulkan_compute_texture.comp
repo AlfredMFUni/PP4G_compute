@@ -1,0 +1,30 @@
+// compute shader
+#version 430
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+
+layout (binding = 0, rgba8) uniform readonly image2D input_image;
+layout (binding = 1, rgba8) uniform writeonly image2D output_image;
+
+
+void main ()
+{
+  // NOTE: there is no 'gl_GlobalInvocationID' check in this shader!
+  // so your input/output image dimensions MUST be a multiple of the thread group size!
+  // see layout (...) above
+
+
+  const vec3 rgb = imageLoad (input_image, ivec2 (gl_GlobalInvocationID.xy)).rgb;
+
+  // TODO: calculate greyscale colour for this pixel
+  // you don't have to do greyscale!
+  // ask Andy about ideas for other 'post effects' that you could apply instead
+
+  const float val = 0.3 * rgb.r + 0.6 * rgb.g + 0.11 * rgb.b;
+
+  const vec4 res = {val, val, val, 1};
+  //const vec4 res = {1.0, 0.0, 0.0, 1.0};
+
+  imageStore (output_image, ivec2 (gl_GlobalInvocationID.xy), res);
+}

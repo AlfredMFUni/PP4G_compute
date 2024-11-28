@@ -254,20 +254,47 @@ bool map_and_unmap_memory (VkDevice device,
 
 
 #pragma region vulkan_texture_support
-static bool create_image_2d (VkDevice device,
-  VkExtent2D const& size,
-  VkFormat image_format, VkImageUsageFlags image_usage_flags, VkImageLayout initial_image_layout,
-  VkImageTiling image_tiling,
-  VkImage& out_image)
+static bool create_image_2d(VkDevice device,
+    VkExtent2D const& size,
+    VkFormat image_format, VkImageUsageFlags image_usage_flags, VkImageLayout initial_image_layout,
+    VkImageTiling image_tiling,
+    VkImage& out_image)
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (device));
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_image));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(device));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_image));
 
 
-  // TODO: ask Andy for graphics starter code
+    VkImageCreateInfo const ici =
+    {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .format = image_format,
+      .extent = { size.width, size.height, 1u },
+      .mipLevels = 1u,
+      .arrayLayers = 1u,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = image_tiling,
+      .usage = image_usage_flags,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      //.queueFamilyIndexCount = 0u,
+      //.pQueueFamilyIndices = VK_NULL_HANDLE,
+      .initialLayout = initial_image_layout
+    };
 
-  return true;
+    VkResult const result = vkCreateImage(device, // device
+        &ici,                                        // pCreateInfo
+        nullptr,                                     // pAllocator
+        &out_image);                                 // pImage
+    if (!CHECK_VULKAN_RESULT(result) || !CHECK_VULKAN_HANDLE(out_image))
+    {
+        return DBG_ASSERT_MSG(false, "failed to create image\n");
+    }
+
+    return true;
 }
+
 static bool allocate_image_memory (VkPhysicalDevice physical_device, VkDevice device,
   VkImage image, VkMemoryPropertyFlags desired_memory_flags,
   VkDeviceSize& out_size, VkDeviceMemory& out_memory)
@@ -451,35 +478,329 @@ static void release_vulkan_sampler (VkDevice device, VkSampler& sampler)
 #pragma endregion
 
 
-bool create_vulkan_texture (VkPhysicalDevice physical_device, VkDevice device,
-  char const* texture_path,
-  VkFormat image_format, VkImageLayout image_layout, VkImageUsageFlags image_usage_flags,
-  vulkan_texture& out_texture)
+bool create_vulkan_texture(VkPhysicalDevice physical_device, VkDevice device,
+    char const* texture_path,
+    VkFormat image_format, VkImageLayout image_layout, VkImageUsageFlags image_usage_flags,
+    vulkan_texture& out_texture)
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (physical_device));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (device));
-  DBG_ASSERT (texture_path != nullptr);
-  DBG_ASSERT (image_format != VK_FORMAT_UNDEFINED);
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(physical_device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(device));
+    DBG_ASSERT(texture_path != nullptr);
+    DBG_ASSERT(image_format != VK_FORMAT_UNDEFINED);
 
 
-  // TODO: ask Andy for graphics starter code
+    out_texture.format = image_format;
+    out_texture.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  return true;
+
+    // load image pixel data
+
+    stbi_uc* pixels = nullptr;
+    int texture_width = 0, texture_height = 0;
+    VkDeviceSize texture_size = 0u;
+    {
+        int channels;
+        // STBI_rgb_alpha: force alpha even if not present in image
+        pixels = stbi_load(texture_path, &texture_width, &texture_height, &channels, STBI_rgb_alpha);
+
+        if (pixels == nullptr)
+        {
+            return DBG_ASSERT(false);
+        }
+
+        if (texture_width <= 0 || texture_height <= 0)
+        {
+            return DBG_ASSERT(false);
+        }
+
+        texture_size = (VkDeviceSize)texture_width * (VkDeviceSize)texture_height * 4u;
+        if (texture_size == 0u)
+        {
+            return DBG_ASSERT(false);
+        }
+    }
+
+
+    // create staging buffer
+    // using the 'staging buffer' approach allows us to have our final buffer have the most optimal properties
+    // i.e. device only, NOT host visible!
+
+    VkBuffer staging_buffer = VK_NULL_HANDLE;
+    {
+        VkBufferCreateInfo const bci =
+        {
+          .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+          //.pNext = VK_NULL_HANDLE,
+          //.flags = 0u,
+          .size = texture_size,
+          .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+          .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+          //.queueFamilyIndexCount = 0u,
+          //.pQueueFamilyIndices = VK_NULL_HANDLE
+        };
+
+        if (!create_buffer(device, bci, staging_buffer))
+        {
+            return false;
+        }
+    }
+
+
+    // allocate memory for staging buffer
+
+    VkDeviceMemory staging_buffer_memory = VK_NULL_HANDLE;
+    {
+        if (!allocate_buffer_memory(physical_device, device,
+            staging_buffer,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nullptr,
+            staging_buffer_memory))
+        {
+            return false;
+        }
+    }
+
+
+    // bind staging buffer memory to staging buffer object
+
+    if (!bind_buffer_to_memory(device, staging_buffer, staging_buffer_memory))
+    {
+        return false;
+    }
+
+
+    // copy pixels to staging buffer memory
+
+    if (!map_and_unmap_memory(device,
+        staging_buffer_memory, [&](void* mapped_memory)
+        {
+            std::memcpy(mapped_memory, pixels, (size_t)texture_size);
+        }))
+    {
+        return false;
+    }
+
+
+    // release original pixel data
+
+    stbi_image_free(pixels);
+    pixels = nullptr;
+
+
+    // create image object
+
+    out_texture.dim = { (unsigned)texture_width, (unsigned)texture_height };
+
+    if (!create_image_2d(device,
+        { (unsigned)texture_width, (unsigned)texture_height },
+        out_texture.format, VK_IMAGE_USAGE_TRANSFER_DST_BIT | image_usage_flags, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_TILING_OPTIMAL,
+        out_texture.image))
+    {
+        return false;
+    }
+
+
+    // allocate memory for image object
+
+    if (!allocate_image_memory(physical_device, device,
+        out_texture.image, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        out_texture.size, out_texture.memory))
+    {
+        return false;
+    }
+
+
+    // bind image memory to image object
+
+    if (!bind_image_to_memory(device, out_texture.image, out_texture.memory))
+    {
+        return false;
+    }
+
+
+    // put image in correct layout ready to recieve pixel data from staging buffer
+
+    if (!transition_image_layout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, out_texture))
+    {
+        return false;
+    }
+
+
+    // copy pixel data in staging buffer to image
+
+    if (!copy_buffer_to_image(staging_buffer, out_texture.image, { (unsigned)texture_width, (unsigned)texture_height }))
+    {
+        return false;
+    }
+
+
+    // destroy staging buffer and memory
+
+    vkFreeMemory(device, staging_buffer_memory, VK_NULL_HANDLE);
+    staging_buffer_memory = VK_NULL_HANDLE;
+    vkDestroyBuffer(device, staging_buffer, VK_NULL_HANDLE);
+    staging_buffer = VK_NULL_HANDLE;
+
+
+    // put image in desired layout ready to be read by shaders
+
+    if (!transition_image_layout(image_layout, out_texture))
+    {
+        return false;
+    }
+
+
+    // create sampler
+
+    if (!create_vulkan_sampler_basic(device, out_texture.sampler))
+    {
+        return false;
+    }
+
+    // create image view
+
+    return create_vulkan_image_view_2d_basic(device,
+        out_texture.image, out_texture.format, VK_IMAGE_ASPECT_COLOR_BIT,
+        out_texture.view);
 }
-bool create_vulkan_texture_empty (VkPhysicalDevice physical_device, VkDevice device,
-  uvec2 const& dim,
-  VkFormat image_format, VkImageLayout image_layout, VkImageUsageFlags image_usage_flags,
-  vulkan_texture& out_texture)
+bool create_vulkan_texture_empty(VkPhysicalDevice physical_device, VkDevice device,
+    uvec2 const& dim,
+    VkFormat image_format, VkImageLayout image_layout, VkImageUsageFlags image_usage_flags,
+    vulkan_texture& out_texture)
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (physical_device));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (device));
-  DBG_ASSERT (image_format != VK_FORMAT_UNDEFINED);
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(physical_device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(device));
+    DBG_ASSERT(image_format != VK_FORMAT_UNDEFINED);
 
 
-  // TODO: ask Andy for graphics starter code
+    out_texture.dim = dim;
+    out_texture.size = {};
+    out_texture.format = image_format;
+    out_texture.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  return true;
+
+    // create image object
+
+    if (!create_image_2d(device,
+        { out_texture.dim.x, out_texture.dim.y },
+        out_texture.format, image_usage_flags, out_texture.layout,
+        VK_IMAGE_TILING_OPTIMAL,
+        out_texture.image))
+    {
+        return false;
+    }
+
+
+    // allocate memory for image object
+
+    if (!allocate_image_memory(physical_device, device,
+        out_texture.image, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // look me up!
+        out_texture.size, out_texture.memory))
+    {
+        return false;
+    }
+
+
+    // bind image memory to image object
+
+    if (!bind_image_to_memory(device,
+        out_texture.image, out_texture.memory))
+    {
+        return false;
+    }
+
+
+    // put image in correct layout
+
+    if (!transition_image_layout(image_layout, out_texture))
+    {
+        return false;
+    }
+
+
+    // create sampler
+
+    VkPhysicalDeviceFeatures supported_device_features = {};
+    vkGetPhysicalDeviceFeatures(physical_device, &supported_device_features);
+
+    VkSamplerCreateInfo const sci =
+    {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+      .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+      .anisotropyEnable = VK_FALSE,
+      //.anisotropyEnable = supported_device_features.samplerAnisotropy,
+      //.maxAnisotropy = 1.0f,
+      .compareOp = VK_COMPARE_OP_NEVER,
+      .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+      //.unnormalizedCoordinates = VK_FALSE
+    };
+    if (!create_vulkan_sampler(device, sci, out_texture.sampler))
+    {
+        return false;
+    }
+
+
+    // create image view
+
+    VkImageViewCreateInfo const ivci =
+    {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .image = out_texture.image,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = out_texture.format,
+      .components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+      .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+    };
+    return create_vulkan_image_view(device, ivci, out_texture.view);
 }
+
+bool create_vulkan_image_view_2d_basic(VkDevice device,
+    VkImage image, VkFormat image_format, VkImageAspectFlags aspect_mask,
+    VkImageView& out_image_view)
+{
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(image));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_image_view));
+
+
+    VkComponentMapping const components =
+    {
+      .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .a = VK_COMPONENT_SWIZZLE_IDENTITY
+    };
+    VkImageSubresourceRange const subresource_range =
+    {
+      .aspectMask = aspect_mask,
+      .baseMipLevel = 0u,
+      .levelCount = 1u,
+      .baseArrayLayer = 0u,
+      .layerCount = 1u
+    };
+    VkImageViewCreateInfo const ivci =
+    {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .image = image,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = image_format,
+      .components = components,
+      .subresourceRange = subresource_range
+    };
+    return create_vulkan_image_view(device, ivci, out_image_view);
+}
+
 
 bool transition_image_layout (VkCommandBuffer command_buffer,
   VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
@@ -671,29 +992,118 @@ bool transition_image_layout (VkImageLayout new_layout, vulkan_texture& texture)
 }
 
 
-bool create_vulkan_mesh (VkPhysicalDevice physical_device, VkDevice device,
-  void* vertices, u32 num_vertices, u32 vertex_size,
-  void* indices, u32 num_indices, u32 index_size,
-  vulkan_mesh& out_mesh)
+bool create_vulkan_mesh(VkPhysicalDevice physical_device, VkDevice device,
+    void* vertices, u32 num_vertices, u32 vertex_size,
+    void* indices, u32 num_indices, u32 index_size,
+    vulkan_mesh& out_mesh)
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (physical_device));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (device));
-  DBG_ASSERT (vertices != nullptr);
-  DBG_ASSERT (num_vertices > 0u);
-  DBG_ASSERT (vertex_size > 0u);
-  DBG_ASSERT (indices != nullptr);
-  DBG_ASSERT (num_indices > 0u);
-  DBG_ASSERT (index_size > 0u);
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_mesh.buffer_vertex));
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_mesh.memory_vertex));
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_mesh.buffer_index));
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_mesh.memory_index));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(physical_device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(device));
+    DBG_ASSERT(vertices != nullptr);
+    DBG_ASSERT(num_vertices > 0u);
+    DBG_ASSERT(vertex_size > 0u);
+    DBG_ASSERT(indices != nullptr);
+    DBG_ASSERT(num_indices > 0u);
+    DBG_ASSERT(index_size > 0u);
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_mesh.buffer_vertex));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_mesh.memory_vertex));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_mesh.buffer_index));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_mesh.memory_index));
 
 
-  // TODO: ask Andy for graphics starter code
+    out_mesh.num_vertices = num_vertices;
+    out_mesh.num_triangles = num_indices / 3u;
+    out_mesh.num_indices = num_indices;
+    u32 const buffer_size_vertex = vertex_size * num_vertices;
+    u32 const buffer_size_index = index_size * num_indices;
 
-  return true;
+    // vertices
+    {
+        VkBufferCreateInfo const bci =
+        {
+          .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+          //.pNext = VK_NULL_HANDLE,
+          //.flags = 0u,
+          .size = buffer_size_vertex,
+          .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+          .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+          //.queueFamilyIndexCount = 0u,
+          //.pQueueFamilyIndices = VK_NULL_HANDLE
+        };
+
+        if (!create_buffer(device, bci, out_mesh.buffer_vertex))
+        {
+            return false;
+        }
+
+        if (!allocate_buffer_memory(physical_device, device,
+            out_mesh.buffer_vertex,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, nullptr,
+            out_mesh.memory_vertex))
+        {
+            return false;
+        }
+
+        if (!bind_buffer_to_memory(device, out_mesh.buffer_vertex, out_mesh.memory_vertex))
+        {
+            return false;
+        }
+
+        if (!set_device_buffer(physical_device, device, out_mesh.buffer_vertex, buffer_size_vertex,
+            [vertices, buffer_size_vertex](void* mapped_memory)
+            {
+                std::memcpy(mapped_memory, vertices, buffer_size_vertex);
+            }))
+        {
+            return false;
+        }
+    }
+
+    // indices
+    {
+        VkBufferCreateInfo const bci =
+        {
+          .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+          //.pNext = VK_NULL_HANDLE,
+          //.flags = 0u,
+          .size = buffer_size_index,
+          .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+          .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+          //.queueFamilyIndexCount = 0u,
+          //.pQueueFamilyIndices = VK_NULL_HANDLE
+        };
+
+        if (!create_buffer(device, bci, out_mesh.buffer_index))
+        {
+            return false;
+        }
+
+        if (!allocate_buffer_memory(physical_device, device,
+            out_mesh.buffer_index,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, nullptr,
+            out_mesh.memory_index))
+        {
+            return false;
+        }
+
+        if (!bind_buffer_to_memory(device, out_mesh.buffer_index, out_mesh.memory_index))
+        {
+            return false;
+        }
+
+        if (!set_device_buffer(physical_device, device, out_mesh.buffer_index, buffer_size_index,
+            [indices, buffer_size_index](void* mapped_memory)
+            {
+                std::memcpy(mapped_memory, indices, buffer_size_index);
+            }))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
+
 
 
 void release_vulkan_mesh (VkDevice device, vulkan_mesh& mesh)

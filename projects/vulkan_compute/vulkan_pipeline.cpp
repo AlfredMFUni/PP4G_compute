@@ -159,33 +159,110 @@ bool create_vulkan_pipeline_compute (VkDevice device,
 
   return true;
 }
-bool create_vulkan_pipeline_graphics (VkDevice device,
-  VkShaderModule shader_module_vert, char const* shader_entry_point_vert,
-  VkShaderModule shader_module_frag, char const* shader_entry_point_frag,
-  VkViewport const& viewport, VkRect2D const& scissor,
-  VkPipelineVertexInputStateCreateInfo const& pvisci,
-  VkPipelineInputAssemblyStateCreateInfo const& piasci,
-  VkPipelineRasterizationStateCreateInfo const& prsci,
-  VkPipelineMultisampleStateCreateInfo const& pmsci,
-  VkPipelineDepthStencilStateCreateInfo const& pdssci,
-  VkPipelineColorBlendStateCreateInfo const& pcbsci,
-  VkPipelineLayout pipeline_layout, VkRenderPass render_pass, u32 subpass_id,
-  VkPipeline& out_pipeline)
+bool create_vulkan_pipeline_graphics(VkDevice device,
+    VkShaderModule shader_module_vert, char const* shader_entry_point_vert,
+    VkShaderModule shader_module_frag, char const* shader_entry_point_frag,
+    VkViewport const& viewport, VkRect2D const& scissor,
+    VkPipelineVertexInputStateCreateInfo const& pvisci,
+    VkPipelineInputAssemblyStateCreateInfo const& piasci,
+    VkPipelineRasterizationStateCreateInfo const& prsci,
+    VkPipelineMultisampleStateCreateInfo const& pmsci,
+    VkPipelineDepthStencilStateCreateInfo const& pdssci,
+    VkPipelineColorBlendStateCreateInfo const& pcbsci,
+    VkPipelineLayout pipeline_layout, VkRenderPass render_pass, u32 subpass_id,
+    VkPipeline& out_pipeline)
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (device));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (shader_module_vert));
-  DBG_ASSERT (shader_entry_point_vert != nullptr);
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (shader_module_frag));
-  DBG_ASSERT (shader_entry_point_frag != nullptr);
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (pipeline_layout));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (render_pass));
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (out_pipeline));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(shader_module_vert));
+    DBG_ASSERT(shader_entry_point_vert != nullptr);
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(shader_module_frag));
+    DBG_ASSERT(shader_entry_point_frag != nullptr);
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(pipeline_layout));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(render_pass));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(out_pipeline));
 
 
-  // TODO: ask Andy for graphics starter code
+    VkPipelineShaderStageCreateInfo const pssci[] =
+    {
+      {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        //.pNext = VK_NULL_HANDLE,
+        //.flags = 0u,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = shader_module_vert,
+        .pName = shader_entry_point_vert,
+        //.pSpecializationInfo = VK_NULL_HANDLE
+      },
+      {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        //.pNext = VK_NULL_HANDLE,
+        //.flags = 0u,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = shader_module_frag,
+        .pName = shader_entry_point_frag,
+        //.pSpecializationInfo = VK_NULL_HANDLE
+      }
+    };
 
-  return true;
+    VkPipelineViewportStateCreateInfo const pvsci =
+    {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .viewportCount = 1u,
+      .pViewports = &viewport,
+      .scissorCount = 1u,
+      .pScissors = &scissor
+    };
+
+    VkDynamicState const dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo const pdsci =
+    {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .dynamicStateCount = 2u,
+      .pDynamicStates = dynamic_states
+    };
+
+
+    VkGraphicsPipelineCreateInfo const gpci =
+    {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .stageCount = 2u,
+      .pStages = pssci,
+      .pVertexInputState = &pvisci,
+      .pInputAssemblyState = &piasci,
+      //.pTessellationState = VK_NULL_HANDLE,
+      .pViewportState = &pvsci,
+      .pRasterizationState = &prsci,
+      .pMultisampleState = &pmsci,
+      .pDepthStencilState = &pdssci,
+      .pColorBlendState = &pcbsci,
+      .pDynamicState = &pdsci,
+      .layout = pipeline_layout,
+      .renderPass = render_pass,
+      .subpass = subpass_id,
+      //.basePipelineHandle = VK_NULL_HANDLE,
+      //.basePipelineIndex = {}
+    };
+
+    VkResult const result = vkCreateGraphicsPipelines(device, // device
+        VK_NULL_HANDLE,                                          // pipelineCache
+        1u,                                                      // createInfoCount
+        &gpci,                                                   // pCreateInfo
+        nullptr,                                                 // pAllocator
+        &out_pipeline);                                          // pPipelines
+    if (!CHECK_VULKAN_RESULT(result) || !CHECK_VULKAN_HANDLE(out_pipeline))
+    {
+        return DBG_ASSERT_MSG(false, "failed to create graphics pipeline\n");
+    }
+
+    return true;
 }
+
 void release_vulkan_shader (VkDevice device,
   VkShaderModule& shader_module)
 {

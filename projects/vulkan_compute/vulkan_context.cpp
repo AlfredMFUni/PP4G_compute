@@ -286,7 +286,6 @@ static bool create_instance ()
   std::vector <char const*> layers = get_required_instance_layers ();
   std::vector <char const*> extensions = get_required_instance_extensions ();
 
-  // TODO: fix VkInstanceCreateInfo
   VkInstanceCreateInfo const ici =
   {
     .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -390,18 +389,23 @@ bool create_vulkan_instance ()
 VkSurfaceKHR s_surface = VK_NULL_HANDLE;
 
 
-bool create_vulkan_surface ()
+bool create_vulkan_surface()
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_instance));
-  DBG_ASSERT_MSG (CHECK_VULKAN_HANDLE (s_window_handle),
-    "you must call 'create_window' before 'create_vulkan_surface'\n");
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (s_surface));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_instance));
+    DBG_ASSERT_MSG(CHECK_VULKAN_HANDLE(s_window_handle),
+        "you must call 'create_window' before 'create_vulkan_surface'\n");
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(s_surface));
 
 
-  // TODO: ask Andy for graphics starter code
+    VkResult const result = glfwCreateWindowSurface(s_instance, s_window_handle, VK_NULL_HANDLE, &s_surface);
+    if (!CHECK_VULKAN_RESULT(result) || !CHECK_VULKAN_HANDLE(s_surface))
+    {
+        return DBG_ASSERT_MSG(false, "failed to create vulkan surface\n");
+    }
 
-  return true;
+    return true;
 }
+
 #pragma endregion
 
 
@@ -948,25 +952,123 @@ static VkPresentModeKHR choose_swap_present_mode (std::vector <VkPresentModeKHR>
 
   return VK_PRESENT_MODE_FIFO_KHR; // must be supported by all GPUs that support Vulkan
 }
-static bool create_swapchain ()
+static bool create_swapchain()
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_physical_device));
-  DBG_ASSERT (!CHECK_VULKAN_HANDLE (s_swapchain));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_physical_device));
+    DBG_ASSERT(!CHECK_VULKAN_HANDLE(s_swapchain));
 
 
-  // TODO: ask Andy for graphics starter code
+    s_framebuffer_extent.width = s_framebuffer_extent.height = {};
+    s_framebuffer_images.fill(VK_NULL_HANDLE);
+    s_framebuffer_image_format = VK_FORMAT_UNDEFINED;
 
-  return true;
+
+    // swap chain:
+    // - circular buffer of images presented to graphical output window
+    // - double-, triple-... buffered
+    // - set sync mode, swap, tear, vertical sync
+
+
+    swapchain_support const sc_support = query_swapchain_support(s_physical_device);
+
+    VkSurfaceFormatKHR const surface_format = choose_swap_surface_format(sc_support.formats);
+    VkPresentModeKHR const present_mode = choose_swap_present_mode(sc_support.present_modes, false);
+
+    if (NUM_SWAPCHAIN_IMAGES < sc_support.capabilities.minImageCount && NUM_SWAPCHAIN_IMAGES > sc_support.capabilities.maxImageCount)
+    {
+        return DBG_ASSERT_MSG(false,
+            "device does not support the creation of %d swapchain images\n", NUM_SWAPCHAIN_IMAGES);
+    }
+
+    s_framebuffer_extent = choose_swap_extent();
+
+
+    VkSwapchainCreateInfoKHR ssci =
+    {
+      .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+      //.pNext = VK_NULL_HANDLE,
+      //.flags = 0u,
+      .surface = s_surface,
+      .minImageCount = NUM_SWAPCHAIN_IMAGES,
+      .imageFormat = surface_format.format,
+      .imageColorSpace = surface_format.colorSpace,
+      .imageExtent = s_framebuffer_extent,
+      .imageArrayLayers = 1u,
+      .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+      .preTransform = sc_support.capabilities.currentTransform,
+      .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+      .presentMode = present_mode,
+      .clipped = VK_TRUE,
+      //.oldSwapchain = VK_NULL_HANDLE
+    };
+    if (s_queue_indices.graphics_family == s_queue_indices.present_family)
+    {
+        ssci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+    else
+    {
+        ssci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+
+        u32 const queue_family_indices[] = { s_queue_indices.graphics_family.value(), s_queue_indices.present_family.value() };
+        ssci.queueFamilyIndexCount = 2u;
+        ssci.pQueueFamilyIndices = queue_family_indices;
+    }
+
+    VkResult result = vkCreateSwapchainKHR(s_device, // device
+        &ssci,                                          // pCreateInfo
+        nullptr,                                        // pAllocator
+        &s_swapchain);                                  // pSwapchain
+    if (!CHECK_VULKAN_RESULT(result) || !CHECK_VULKAN_HANDLE(s_swapchain))
+    {
+        return DBG_ASSERT_MSG(false, "failed to create swapchain\n");
+    }
+
+
+    // get num swapchain images
+    u32 num_swapchain_images_actual = {};
+    result = vkGetSwapchainImagesKHR(s_device, s_swapchain, &num_swapchain_images_actual, VK_NULL_HANDLE);
+    if (!CHECK_VULKAN_RESULT(result))
+    {
+        return DBG_ASSERT_MSG(false, "failed to get swapchain images\n");
+    }
+    if (NUM_SWAPCHAIN_IMAGES != num_swapchain_images_actual)
+    {
+        return DBG_ASSERT_MSG(false,
+            "failed to create desired number of swapchain images: %d", NUM_SWAPCHAIN_IMAGES);
+    }
+
+    // get swapchain images
+    result = vkGetSwapchainImagesKHR(s_device, s_swapchain, &num_swapchain_images_actual, s_framebuffer_images.data());
+    if (!CHECK_VULKAN_RESULT(result))
+    {
+        return DBG_ASSERT_MSG(false, "failed to get swapchain images\n");
+    }
+
+    s_framebuffer_image_format = surface_format.format;
+
+    return true;
 }
 
-static bool create_framebuffer_image_views ()
+static bool create_framebuffer_image_views()
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_device));
 
 
-  // TODO: ask Andy for graphics starter code
+    for (size_t i = 0u; i < s_framebuffer_image_views.size(); ++i)
+    {
+        DBG_ASSERT(CHECK_VULKAN_HANDLE(s_framebuffer_images[i]));
+        DBG_ASSERT(!CHECK_VULKAN_HANDLE(s_framebuffer_image_views[i]));
 
-  return true;
+
+        if (!create_vulkan_image_view_2d_basic(s_device,
+            s_framebuffer_images[i], s_framebuffer_image_format, VK_IMAGE_ASPECT_COLOR_BIT,
+            s_framebuffer_image_views[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 static bool create_render_pass ()
@@ -976,20 +1078,100 @@ static bool create_render_pass ()
   DBG_ASSERT (!CHECK_VULKAN_HANDLE (s_render_pass));
 
 
-  // TODO: ask Andy for graphics starter code
+  VkAttachmentDescription attachment_descriptions [1] = {}; // would need 2 if we wanted to support depth
+
+  // 0 - colour screen buffer
+  attachment_descriptions [0].format = s_framebuffer_image_format;
+  attachment_descriptions [0].samples = VK_SAMPLE_COUNT_1_BIT;
+  attachment_descriptions [0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  attachment_descriptions [0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  attachment_descriptions [0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  attachment_descriptions [0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  attachment_descriptions [0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  attachment_descriptions [0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+  VkAttachmentReference const colour_attachment_reference =
+  {
+    .attachment = 0u,
+    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+  };
+
+  // create the subpass for our render passes
+  // 1 subpass
+  // just colour (OR colour & depth)
+  VkSubpassDescription subpass_descriptions [1] = {};
+  subpass_descriptions [0] =
+  {
+    .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+    .colorAttachmentCount = 1u,
+    .pColorAttachments = &colour_attachment_reference,
+    .pDepthStencilAttachment = VK_NULL_HANDLE // would be different if we wanted to support depth
+  };
+
+  // create our main render pass, consisting of our single subpass
+  VkRenderPassCreateInfo const rpci =
+  {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+    //.pNext = VK_NULL_HANDLE,
+    //.flags = 0u,
+    .attachmentCount = 1u, // colour
+    .pAttachments = attachment_descriptions,
+    .subpassCount = 1u,
+    .pSubpasses = subpass_descriptions,
+    .dependencyCount = 0u,
+    .pDependencies = VK_NULL_HANDLE // would be different if we wanted to support depth
+  };
+
+  VkResult const result = vkCreateRenderPass (s_device, // device
+    &rpci,                                              // pCreateInfo
+    VK_NULL_HANDLE,                                     // pAllocator
+    &s_render_pass);                                    // pRenderPass
+  if (!CHECK_VULKAN_RESULT (result) || !CHECK_VULKAN_HANDLE (s_render_pass))
+  {
+    return DBG_ASSERT_MSG (false, "failed to create render pass\n");
+  }
 
   return true;
 }
 
-static bool create_framebuffers ()
+static bool create_framebuffers()
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_device));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_render_pass));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_render_pass));
 
 
-  // TODO: ask Andy for graphics starter code
+    for (size_t i = 0u; i < s_framebuffers.size(); ++i)
+    {
+        DBG_ASSERT(CHECK_VULKAN_HANDLE(s_framebuffer_image_views[i]));
+        DBG_ASSERT(!CHECK_VULKAN_HANDLE(s_framebuffers[i]));
 
-  return true;
+
+        VkImageView framebuffer_attachments[1] = {}; // would need 2 if we wanted to support depth
+        framebuffer_attachments[0] = s_framebuffer_image_views[i];
+
+        VkFramebufferCreateInfo const fbci =
+        {
+          .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+          //.pNext = VK_NULL_HANDLE,
+          //.flags = 0u,
+          .renderPass = s_render_pass,
+          .attachmentCount = 1u, // colour
+          .pAttachments = framebuffer_attachments,
+          .width = s_framebuffer_extent.width,
+          .height = s_framebuffer_extent.height,
+          .layers = 1u
+        };
+        VkResult const result = vkCreateFramebuffer(s_device, // device
+            &fbci,                                               // pCreateInfo
+            VK_NULL_HANDLE,                                      // pAllocator
+            &s_framebuffers[i]);                                // pFramebuffer
+        if (!CHECK_VULKAN_RESULT(result) || !CHECK_VULKAN_HANDLE(s_framebuffers[i]))
+        {
+            return DBG_ASSERT_MSG(false, "failed to create framebuffer\n");
+        }
+    }
+
+    return true;
 }
 
 
@@ -1202,16 +1384,31 @@ bool process_os_messages ()
   glfwPollEvents ();
   return true;
 }
-bool acquire_next_swapchain_image (VkSemaphore swapchain_image_available_semaphore)
+bool acquire_next_swapchain_image(VkSemaphore swapchain_image_available_semaphore)
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_device));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_swapchain));
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (swapchain_image_available_semaphore));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_device));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_swapchain));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(swapchain_image_available_semaphore));
 
 
-  // TODO: ask Andy for graphics starter code
+    VkResult const result = vkAcquireNextImageKHR(s_device, // device
+        s_swapchain,                                           // swapchain
+        UINT64_MAX,                                            // timeout
+        swapchain_image_available_semaphore,                   // semaphore, !!! semaphore to signal once swapchain image is ACTUALLY available !!!
+        VK_NULL_HANDLE,                                        // fence,     !!! fence to signal once swapchain image is ACTUALLY available     !!!
+        &s_swapchain_index);                                   // pImageIndex
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        // The swap chain has become incompatible with the surface and can no longer be used for rendering
+        // Usually happens after a window resize
+        return DBG_ASSERT(false);
+    }
+    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        return DBG_ASSERT_MSG(false, "failed to acquire swap chain image!\n");
+    }
 
-  return true;
+    return true;
 }
 void begin_render_pass (VkCommandBuffer command_buffer, vec3 const& clear_colour)
 {
@@ -1277,14 +1474,44 @@ void end_render_pass (VkCommandBuffer command_buffer)
 
   vkCmdEndRenderPass (command_buffer);
 }
-bool present ()
+bool present()
 {
-  DBG_ASSERT (CHECK_VULKAN_HANDLE (s_swapchain));
+    DBG_ASSERT(CHECK_VULKAN_HANDLE(s_swapchain));
 
 
-  // TODO: ask Andy for graphics starter code
+    VkPresentInfoKHR const present_info =
+    {
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+      //.pNext = VK_NULL_HANDLE,
+      .waitSemaphoreCount = 0u,
+      .pWaitSemaphores = VK_NULL_HANDLE,
+      .swapchainCount = 1u,
+      .pSwapchains = &s_swapchain,
+      .pImageIndices = &s_swapchain_index,
+      //.pResults = VK_NULL_HANDLE
+    };
 
-  return true;
+    VkQueue present_queue = VK_NULL_HANDLE;
+    if (!get_vulkan_queue_graphics(present_queue))
+    {
+        return DBG_ASSERT(false);
+    }
+
+    // present image to screen
+    // flips to next image in swap chain
+    VkResult const result = vkQueuePresentKHR(present_queue, // queue
+        &present_info);                                         // pPresentInfo
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        return DBG_ASSERT(false);
+    }
+    if (!CHECK_VULKAN_RESULT(result))
+    {
+        return DBG_ASSERT(false);
+    }
+
+    return true;
 }
 
 
