@@ -147,9 +147,9 @@
 
 
 constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
-constexpr char const* COMPILED_COMPUTE_SHADER_PATH = "data/shaders/glsl/vulkan_compute_texture/vulkan_compute_texture.comp.spv";
-constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_texture/sprite.vert.spv";
-constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_texture/sprite.frag.spv";
+constexpr char const* COMPILED_COMPUTE_SHADER_PATH = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_particle.comp.spv";
+constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle/sprite.vert.spv";
+constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 
 constexpr unsigned int NUM_PARTICLES = 1u << 21;
@@ -645,9 +645,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   VkDescriptorPool descriptor_pool_graphics = VK_NULL_HANDLE;
   vulkan_descriptor_set desc_set_0_graphics_input,  // for rendering input image , buffer_graphics_camera + buffer_graphics_model_input
-                        desc_set_1_graphics_input,  // for rendering input image , texture_compute_input
-                        desc_set_0_graphics_output, // for rendering output image, buffer_graphics_camera + buffer_graphics_model_output
-                        desc_set_1_graphics_output; // for rendering output image, texture_compute_output
+                        desc_set_1_graphics_input;  // for rendering input image , texture_compute_input
 
   vulkan_buffer buffer_graphics_camera,
     buffer_graphics_model_input,  // for when rendering the input texture
@@ -940,7 +938,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       return -1;
     }
 
-    std::array <vulkan_descriptor_set_info, NUM_SETS_GRAPHICS * 2u> const descriptor_set_infos =
+    std::array <vulkan_descriptor_set_info, NUM_SETS_GRAPHICS> const descriptor_set_infos =
     {{
       // set 0 - input
       {
@@ -955,21 +953,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .layout = &descriptor_set_layouts_graphics [1],
         .set_index = 1u,
         .out_set = &desc_set_1_graphics_input
-      },
-
-      // set 0 - output
-      {
-        .desc_pool = &descriptor_pool_graphics,         // the pool from which to allocate the individual descriptors from
-        .layout = &descriptor_set_layouts_graphics[0], // layout of the descriptor set
-        .set_index = 0u,                                // index of the descriptor set
-        .out_set = &desc_set_0_graphics_output           // pointer to where to instantiate the descriptor set to
-      },
-      // set 1 - output
-      {
-        .desc_pool = &descriptor_pool_graphics,
-        .layout = &descriptor_set_layouts_graphics[1],
-        .set_index = 1u,
-        .out_set = &desc_set_1_graphics_output
       }
 
     }};
@@ -994,7 +977,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           DBG_ASSERT_MSG(false, "device does not support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT\n");
           return -1;
       }
-    // NOTE: we are going to be reusing the textures made for the compute pipeline, so only need to make buffers
+
       if (!create_vulkan_texture(physical_device, device,
           TEXTURE_PATH,
           image_format, VK_IMAGE_LAYOUT_GENERAL,
@@ -1176,55 +1159,15 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .dstBinding = 0u,
         .dstArrayElement = 0u,
         .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // combined image sampler
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, // combined image sampler
         .pImageInfo = &image_infos [0], // texture_compute_input
         .pBufferInfo = VK_NULL_HANDLE,
-        .pTexelBufferView = VK_NULL_HANDLE
-      },
-
-      // desc_set_0_graphics_output - binding 0
-      {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        //.pNext = VK_NULL_HANDLE,
-        .dstSet = desc_set_0_graphics_output.desc_set,
-        .dstBinding = 0u,
-        .dstArrayElement = 0u,
-        .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .pImageInfo = VK_NULL_HANDLE,
-        .pBufferInfo = &buffer_infos[0], // buffer_graphics_camera
-        .pTexelBufferView = VK_NULL_HANDLE
-      },
-      // desc_set_0_graphics_output - binding 1
-      {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        //.pNext = VK_NULL_HANDLE,
-        .dstSet = desc_set_0_graphics_output.desc_set,
-        .dstBinding = 1u,
-        .dstArrayElement = 0u,
-        .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .pImageInfo = VK_NULL_HANDLE,
-        .pBufferInfo = &buffer_infos[2],
-        .pTexelBufferView = VK_NULL_HANDLE
-      },
-
-      // desc_set_1_graphics_output - binding 0
-      {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        //.pNext = VK_NULL_HANDLE,
-        .dstSet = desc_set_1_graphics_output.desc_set,
-        .dstBinding = 0u,
-        .dstArrayElement = 0u,
-        .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_infos[1],
         .pTexelBufferView = VK_NULL_HANDLE
       }
     };
 
     vkUpdateDescriptorSets (device, // device
-      6u,                           // descriptorWriteCount
+      3u,                           // descriptorWriteCount
       write_descriptors,            // pDescriptorWrites
       0u,                           // descriptorCopyCount
       VK_NULL_HANDLE);              // pDescriptorCopies
@@ -1372,41 +1315,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               0u);
         }
 
-        // render output image
-        {
-          // vertices & indices are already bound!!!
-
-          // TODO: bind graphics output descriptor set 0 - buffer_graphics_camera + buffer_graphics_model_output
-
-            vkCmdBindDescriptorSets(command_buffer_graphics,
-                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipeline_layout_graphics,
-                desc_set_0_graphics_output.set_index,
-                1u,
-                &desc_set_0_graphics_output.desc_set,
-                0u,
-                VK_NULL_HANDLE);
-          // TODO: bind graphics output descriptor set 1 - texture_compute_output
-
-
-            vkCmdBindDescriptorSets(command_buffer_graphics,
-                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipeline_layout_graphics,
-                desc_set_1_graphics_output.set_index,
-                1u,
-                &desc_set_1_graphics_output.desc_set,
-                0u,
-                VK_NULL_HANDLE);
-          // TODO: call vkCmdDrawIndexed
-          // we are drawing the same mesh again (just with different DSIs now :)
-            vkCmdDrawIndexed(command_buffer_graphics,
-                mesh_sprite.num_indices,
-                1u,
-                0u,
-                0u,
-                0u);
-        }
-
         end_render_pass (command_buffer_graphics);
 
 
@@ -1505,10 +1413,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_buffer (device, buffer_graphics_model_input);
       release_vulkan_buffer (device, buffer_graphics_camera);
 
-      release_vulkan_descriptor_sets (device,
-        1u, &desc_set_1_graphics_output);
-      release_vulkan_descriptor_sets (device,
-        1u, &desc_set_0_graphics_output);
       release_vulkan_descriptor_sets (device,
         1u, &desc_set_1_graphics_input);
       release_vulkan_descriptor_sets (device,
