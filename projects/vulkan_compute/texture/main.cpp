@@ -150,7 +150,10 @@ constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
 constexpr char const* COMPILED_COMPUTE_SHADER_PATH = "data/shaders/glsl/vulkan_compute_texture/vulkan_compute_texture.comp.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_texture/sprite.vert.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_texture/sprite.frag.spv";
-constexpr char const* TEXTURE_PATH = "data/textures/test.png";
+constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
+
+constexpr unsigned int NUM_PARTICLES = 1u << 21;
+constexpr unsigned int DATA_SIZE = sizeof(u32);
 
 
 int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
@@ -215,18 +218,20 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   constexpr u32 NUM_SETS_COMPUTE = 1u;
 
-  constexpr u32 NUM_RESOURCES_COMPUTE_SET_0 = 2u;
-  constexpr u32 BINDING_ID_SET_0_TEXTURE_INPUT = 0u;
-  constexpr u32 BINDING_ID_SET_0_TEXTURE_OUTPUT = 1u;
+  constexpr u32 NUM_RESOURCES_COMPUTE_SET_0 = 4u;
+  constexpr u32 BINDING_ID_SET_0_X_POSITION = 0u;
+  constexpr u32 BINDING_ID_SET_0_Y_POSITION = 1u;
+  constexpr u32 BINDING_ID_SET_0_X_VELOCITY = 2u;
+  constexpr u32 BINDING_ID_SET_0_Y_VELOCITY = 3u;
 
   std::array <VkDescriptorSetLayout, NUM_SETS_COMPUTE> descriptor_set_layouts_compute = { VK_NULL_HANDLE };
   VkPipelineLayout pipeline_layout_compute = VK_NULL_HANDLE;
   VkPipeline pipeline_compute = VK_NULL_HANDLE;
 
   VkDescriptorPool descriptor_pool_compute = VK_NULL_HANDLE;
-  vulkan_descriptor_set desc_set_0_compute; // for compute, texture_compute_input + texture_compute_output
+  vulkan_descriptor_set desc_set_0_compute; // for compute, X,Y - Pos,Vel
 
-  vulkan_texture texture_compute_input, texture_compute_output;
+  vulkan_buffer buffer_pos_x, buffer_pos_y, buffer_vel_x, buffer_vel_y;
 
   VkCommandPool command_pool_compute = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_compute = VK_NULL_HANDLE;
@@ -240,15 +245,29 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     std::array <VkDescriptorSetLayoutBinding, NUM_RESOURCES_COMPUTE_SET_0> const descriptor_set_layout_binding_info_0 =
     {
       VkDescriptorSetLayoutBinding {
-        .binding = BINDING_ID_SET_0_TEXTURE_INPUT,          // at binding point 0 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, // an image (input)
+        .binding = BINDING_ID_SET_0_X_POSITION,          // at binding point 0 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // an image (input)
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
-        .binding = BINDING_ID_SET_0_TEXTURE_OUTPUT,         // at binding point 1 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, // another image (output)
+        .binding = BINDING_ID_SET_0_Y_POSITION,         // at binding point 1 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another image (output)
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_X_VELOCITY,         // at binding point 2 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another image (output)
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_Y_VELOCITY,         // at binding point 3 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another image (output)
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
@@ -287,7 +306,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       DBG_ASSERT (false);
       return -1;
     }
-
+    // error: type mismatch storage image != storage buffer
     if (!create_vulkan_pipeline_compute (device,
       shader_module_compute, "main",
       pipeline_layout_compute,
@@ -309,11 +328,9 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     std::array <VkDescriptorPoolSize, 1u> const pool_sizes =
     {{ // yes this is deliberate!
       {
-        // we have 1 x descriptor set that consists of 2 x 'storage image' descriptors
-        // A storage image (VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) is a descriptor type associated with an image
-        // resource via an image view that load, store and atomic operations can be performed on.
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .descriptorCount = 2u
+        // we have 1 x descriptor set that consists of 4 x 'storage buffer' descriptors
+        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .descriptorCount = 4u
       }
       // if you also needed n uniform buffer descriptors you would need to create a new VkDescriptorPoolSize here
     }};
@@ -346,39 +363,50 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   }
   // create compute resources
   {
-    VkFormat const image_format = VK_FORMAT_R8G8B8A8_UNORM;
+      {
 
-    VkFormatProperties format_properties = {};
-    // Get device properties for the requested texture format
-    vkGetPhysicalDeviceFormatProperties (physical_device, image_format, &format_properties);
-    // NOTE: Check if requested image format supports image storage operations (VK_IMAGE_USAGE_STORAGE_BIT)
-    if ((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) == 0u)
-    {
-      DBG_ASSERT_MSG (false, "device does not support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT\n");
-      return -1;
-    }
+          if (!create_vulkan_buffer(physical_device, device,
+              NUM_PARTICLES * DATA_SIZE,
+              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+              VK_SHARING_MODE_EXCLUSIVE,
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+              buffer_pos_x))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
+          if (!create_vulkan_buffer(physical_device, device,
+              NUM_PARTICLES * DATA_SIZE,
+              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+              VK_SHARING_MODE_EXCLUSIVE,
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+              buffer_pos_y))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
+          if (!create_vulkan_buffer(physical_device, device,
+              NUM_PARTICLES * DATA_SIZE,
+              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+              VK_SHARING_MODE_EXCLUSIVE,
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+              buffer_vel_x))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
+          if (!create_vulkan_buffer(physical_device, device,
+              NUM_PARTICLES * DATA_SIZE,
+              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+              VK_SHARING_MODE_EXCLUSIVE,
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+              buffer_vel_y))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
+      }
 
-    if (!create_vulkan_texture (physical_device, device,
-      TEXTURE_PATH,
-      image_format, VK_IMAGE_LAYOUT_GENERAL,
-      // but can not be 'VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL' because
-      // it will be used initially in a VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
-      VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, // look me up!
-      texture_compute_input))
-    {
-      DBG_ASSERT (false);
-      return -1;
-    }
-
-    if (!create_vulkan_texture_empty(physical_device, device,
-        texture_compute_input.dim,
-        image_format, VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, // look me up!
-        texture_compute_output))
-    {
-        DBG_ASSERT(false);
-        return -1;
-    }
     // needs to have the exact same size as texture_compute_input
     // needs general layout so it can be written to
     // usage = sampled and storage
@@ -388,20 +416,30 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   // bind compute resources to compute descriptor set
   {
     // desc_set_0_compute = for compute = texture_compute_input + texture_compute_output
+      VkDescriptorBufferInfo const buffer_infos[NUM_RESOURCES_COMPUTE_SET_0] =
+      {
+        {
+          .buffer = buffer_pos_x.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_pos_y.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_vel_x.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_vel_y.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        }
+      };
 
-    VkDescriptorImageInfo const image_infos [NUM_RESOURCES_COMPUTE_SET_0] =
-    {
-      {
-        .sampler = texture_compute_input.sampler,
-        .imageView = texture_compute_input.view,
-        .imageLayout = texture_compute_input.layout
-      },
-      {
-        .sampler = texture_compute_output.sampler,
-        .imageView = texture_compute_output.view,
-        .imageLayout = texture_compute_output.layout
-      }
-    };
     VkWriteDescriptorSet const write_descriptors [NUM_RESOURCES_COMPUTE_SET_0] =
     {
       // desc_set_0_compute
@@ -409,12 +447,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         //.pNext = VK_NULL_HANDLE,
         .dstSet = desc_set_0_compute.desc_set,
-        .dstBinding = BINDING_ID_SET_0_TEXTURE_INPUT,
+        .dstBinding = BINDING_ID_SET_0_X_POSITION,
         .dstArrayElement = 0u,
         .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .pImageInfo = &image_infos [0], // texture_compute_input
-        .pBufferInfo = VK_NULL_HANDLE,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pImageInfo = VK_NULL_HANDLE,
+        .pBufferInfo = &buffer_infos[0],
         .pTexelBufferView = VK_NULL_HANDLE
       },
       // desc_set_0_compute
@@ -422,14 +460,40 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         //.pNext = VK_NULL_HANDLE,
         .dstSet = desc_set_0_compute.desc_set,
-        .dstBinding = BINDING_ID_SET_0_TEXTURE_OUTPUT,
+        .dstBinding = BINDING_ID_SET_0_Y_POSITION,
         .dstArrayElement = 0u,
         .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .pImageInfo = &image_infos [1], // texture_compute_output
-        .pBufferInfo = VK_NULL_HANDLE,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pImageInfo = VK_NULL_HANDLE,
+        .pBufferInfo = &buffer_infos[1],
         .pTexelBufferView = VK_NULL_HANDLE
-      }
+      },
+        // desc_set_0_compute
+        {
+          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          //.pNext = VK_NULL_HANDLE,
+          .dstSet = desc_set_0_compute.desc_set,
+          .dstBinding = BINDING_ID_SET_0_X_VELOCITY,
+          .dstArrayElement = 0u,
+          .descriptorCount = 1u,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pImageInfo = VK_NULL_HANDLE,
+        .pBufferInfo = &buffer_infos[2],
+          .pTexelBufferView = VK_NULL_HANDLE
+        },
+        // desc_set_0_compute
+        {
+          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          //.pNext = VK_NULL_HANDLE,
+          .dstSet = desc_set_0_compute.desc_set,
+          .dstBinding = BINDING_ID_SET_0_Y_VELOCITY,
+          .dstArrayElement = 0u,
+          .descriptorCount = 1u,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pImageInfo = VK_NULL_HANDLE,
+        .pBufferInfo = &buffer_infos[3],
+          .pTexelBufferView = VK_NULL_HANDLE
+        }
     };
 
     vkUpdateDescriptorSets (device, // device
@@ -490,7 +554,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
         // see 'bin/data/shaders/glsl/vulkan_compute_texture/vulkan_compute_texture.comp' for thread group size!
         // HINT: the thread groups are 2D and so will the 'grid' of thread groups we want to create
-          u32 ThreadGroup_x = 60u, ThreadGroup_y = 60u;
+          u32 ThreadGroup_x = 2u, ThreadGroup_y = 2u;
 
           vkCmdDispatch(command_buffer_compute,
               ThreadGroup_x, ThreadGroup_y, 1u);
@@ -545,25 +609,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       }
     }
 
-    // TRANSITION IMAGE LAYOUTS
-    {
-      // NOTE: get output image ready for rendering via fragment shader
-      // can only perform this now compute write pipeline has completed
-      if (!transition_image_layout (VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, texture_compute_input))
-      {
-        DBG_ASSERT (false);
-        return -1;
-      }
-      if (!transition_image_layout (VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, texture_compute_output))
-      {
-        DBG_ASSERT (false);
-        return -1;
-      }
-
-      // NOTE: this function is overloaded
-      // the above version performs the transition as a 'one off' outside a command buffer
-      // the other overload will add the required commands to an EXISTING command buffer
-    }
+    
   }
 
 
@@ -606,6 +652,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   vulkan_buffer buffer_graphics_camera,
     buffer_graphics_model_input,  // for when rendering the input texture
     buffer_graphics_model_output; // for when rendering the output texture
+
+  vulkan_texture texture_particle;
 
   VkCommandPool command_pool_graphics = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_graphics = VK_NULL_HANDLE;
@@ -934,8 +982,30 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   }
   // create graphics resources
   {
-    // NOTE: we are going to be reusing the textures made for the compute pipeline, so only need to make buffers
 
+      VkFormat const image_format = VK_FORMAT_R8G8B8A8_UNORM;
+
+      VkFormatProperties format_properties = {};
+      // Get device properties for the requested texture format
+      vkGetPhysicalDeviceFormatProperties(physical_device, image_format, &format_properties);
+      // NOTE: Check if requested image format supports image storage operations (VK_IMAGE_USAGE_STORAGE_BIT)
+      if ((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) == 0u)
+      {
+          DBG_ASSERT_MSG(false, "device does not support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT\n");
+          return -1;
+      }
+    // NOTE: we are going to be reusing the textures made for the compute pipeline, so only need to make buffers
+      if (!create_vulkan_texture(physical_device, device,
+          TEXTURE_PATH,
+          image_format, VK_IMAGE_LAYOUT_GENERAL,
+          // but can not be 'VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL' because
+          // it will be used initially in a VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, // look me up!
+          texture_particle))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
 
       if (!create_vulkan_buffer(physical_device, device,
           sizeof(camera_buffer),
@@ -995,7 +1065,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       return -1;
     }
 
-    vec2 const texture_dim = (vec2)texture_compute_input.dim * 0.65f;
+    vec2 const texture_dim = (vec2)texture_particle.dim * 0.65f;
     if (!map_and_unmap_memory (device,
       buffer_graphics_model_input.memory,
       [&texture_dim](void* mem)
@@ -1061,13 +1131,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     VkDescriptorImageInfo const image_infos [] =
     {
       {
-        .sampler = texture_compute_input.sampler,
-        .imageView = texture_compute_input.view,
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL // not in this format yet, but it will be!
-      },
-      {
-        .sampler = texture_compute_output.sampler,
-        .imageView = texture_compute_output.view,
+        .sampler = texture_particle.sampler,
+        .imageView = texture_particle.view,
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL // not in this format yet, but it will be!
       }
     };
@@ -1398,6 +1463,21 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           DBG_ASSERT (false);
           return -1;
         }
+
+        // TRANSITION IMAGE LAYOUT
+        {
+            // NOTE: get output image ready for rendering via fragment shader
+            // can only perform this now compute write pipeline has completed
+            if (!transition_image_layout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, texture_particle))
+            {
+                DBG_ASSERT(false);
+                return -1;
+            }
+
+            // NOTE: this function is overloaded
+            // the above version performs the transition as a 'one off' outside a command buffer
+            // the other overload will add the required commands to an EXISTING command buffer
+        }
       }
 
       if (!present ())
@@ -1448,8 +1528,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_command_buffers (1u, command_pool_compute, &command_buffer_compute);
       release_vulkan_command_pool (command_pool_compute);
 
-      release_vulkan_texture (device, texture_compute_output);
-      release_vulkan_texture (device, texture_compute_input);
+      release_vulkan_texture (device, texture_particle);
 
       release_vulkan_descriptor_sets (device,
         1u, &desc_set_0_compute);
