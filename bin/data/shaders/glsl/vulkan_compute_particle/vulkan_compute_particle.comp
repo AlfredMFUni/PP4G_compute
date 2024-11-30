@@ -1,0 +1,30 @@
+// compute shader
+#version 430
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout (std430, set = 0, binding = 0) buffer pos_x_buffer
+{
+  float data [];
+} SBO_pos_x;
+
+layout (std430, set = 0, binding = 1) buffer pos_y_buffer
+{
+  float data [];
+} SBO_pos_y;
+
+layout (std430, set = 0, binding = 2) buffer vel_x_buffer
+{
+  float data [];
+} SBO_vel_x;
+
+layout (std430, set = 0, binding = 3) buffer vel_y_buffer
+{
+  float data [];
+} SBO_vel_y;
+
+
+void main ()
+{
+  
+}
