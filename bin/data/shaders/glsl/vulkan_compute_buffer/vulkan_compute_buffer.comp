@@ -34,7 +34,7 @@ void main ()
 {
   const uint i = uint (gl_GlobalInvocationID.x); // get thread index
 
-  if (i >= UBO_info.num_elements)
+  if (i >= UBO_info.num_elements) return;
 
   // fused multiply add
   SBO_output.data [i] = (SBO_input_a.data [i] * push_constants.multiplier) + SBO_input_b.data [i];

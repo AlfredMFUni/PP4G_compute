@@ -1,7 +1,7 @@
 // compute shader
 #version 430
 
-layout (local_size_x = 16, local_size_y = 16) in;
+layout (local_size_x = 256) in;
 
 layout (std430, set = 0, binding = 0) buffer pos_x_buffer
 {
@@ -23,8 +23,25 @@ layout (std430, set = 0, binding = 3) buffer vel_y_buffer
   float data [];
 } SBO_vel_y;
 
+layout (set = 0, binding = 4) uniform info_buffer
+{
+  uint num_elements;
+  float window_width;
+  float window_height;
+} UBO_info;
+
+layout (push_constant) uniform my_push_constants
+{
+  float deltatime;
+} push_constants;
 
 void main ()
 {
+  const uint i = uint (gl_GlobalInvocationID.x); // get thread index
+
+  if (i >= UBO_info.num_elements) return;
+
   
+  SBO_pos_x.data[i] = SBO_pos_x.data[i] + (SBO_vel_x.data[i] * push_constants.deltatime);
+  SBO_pos_y.data[i] = SBO_pos_y.data[i] + (SBO_vel_y.data[i] * push_constants.deltatime);
 }

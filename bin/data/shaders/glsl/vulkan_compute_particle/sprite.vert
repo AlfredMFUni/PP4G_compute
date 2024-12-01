@@ -23,7 +23,8 @@ layout (location = 0) out vec2 out_tex_coord;
 
 void main ()
 {
-  gl_Position = UBO_camera.vp_matrix * UBO_model.model_matrix * vec4 (in_position, 0.0, 1.0);
+//instanceIndex
+  gl_Position = (UBO_camera.vp_matrix * UBO_model.model_matrix * vec4 (in_position.x - 1.0,  in_position.y - 1.0, 0.0, 1.0));// - vec4(0.9, 0.9, 0.0, 0.0));
 
   out_tex_coord = in_tex_coord;
 }
