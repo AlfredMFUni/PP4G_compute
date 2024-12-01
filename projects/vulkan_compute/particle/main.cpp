@@ -1196,11 +1196,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
             .range = VK_WHOLE_SIZE
         },
         {
-            .buffer = buffer_graphics_model_output.buffer,
-            .offset = 0u,
-            .range = VK_WHOLE_SIZE
-        },
-        {
             .buffer = buffer_info.buffer,
             .offset = 0u,
             .range = VK_WHOLE_SIZE
@@ -1221,7 +1216,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       {
         .sampler = texture_particle.sampler,
         .imageView = texture_particle.view,
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL//VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL // not in this format yet, but it will be!
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL // not in this format yet, but it will be!
+      },
+      {
+        .sampler = texture_particle.sampler,
+        .imageView = texture_particle.view,
+        .imageLayout = texture_particle.layout 
       }
     };
 
@@ -1264,7 +1264,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .dstBinding = 0u,
         .dstArrayElement = 0u,
         .descriptorCount = 1u,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, // combined image sampler
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // combined image sampler
         .pImageInfo = &image_infos [0], // texture_compute_input
         .pBufferInfo = VK_NULL_HANDLE,
         .pTexelBufferView = VK_NULL_HANDLE
@@ -1315,7 +1315,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     };
 
     vkUpdateDescriptorSets (device, // device
-      3u,                           // descriptorWriteCount
+      6u,                           // descriptorWriteCount
       write_descriptors,            // pDescriptorWrites
       0u,                           // descriptorCopyCount
       VK_NULL_HANDLE);              // pDescriptorCopies
@@ -1553,12 +1553,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           // TODO: call vkCmdDrawIndexed
           // indexCount = number of indices in our mesh
           // look in 'mesh_sprite'
-          vkCmdDrawIndexed(command_buffer_graphics,
-              mesh_sprite.num_indices,
-              1u,
-              NUM_PARTICLES,  /// instance count
-              0u,
-              0u);
+          vkCmdDrawIndexed(command_buffer_graphics, // CommandBuffer
+              mesh_sprite.num_indices,              // indexCount
+              NUM_PARTICLES,                        // instanceCount
+              0u,                                   // firstIndex
+              0u,                                   // vertexOffset
+              0u);                                  // firstINstance
         }
 
         end_render_pass (command_buffer_graphics);

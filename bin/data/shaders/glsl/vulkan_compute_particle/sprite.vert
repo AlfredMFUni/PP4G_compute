@@ -41,7 +41,7 @@ layout (location = 0) out vec2 out_tex_coord;
 
 void main ()
 {
-  vec2 instancePos = vec2(SBO_pos_x.data[gl_InstanceIndex] / UBO_info.window_width, SBO_pos_y.data[gl_InstanceIndex] / UBO_info.window_height);
+  vec2 instancePos = vec2(SBO_pos_x.data[gl_InstanceIndex], SBO_pos_y.data[gl_InstanceIndex] );
 
   gl_Position = (UBO_camera.vp_matrix * UBO_model.model_matrix * vec4 ((in_position + instancePos), 0.0, 1.0));
 
