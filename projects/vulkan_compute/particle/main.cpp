@@ -692,9 +692,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   constexpr u32 NUM_SETS_GRAPHICS = 2u;
 
-  constexpr u32 NUM_RESOURCES_GRAPHICS_SET_0 = 2u;
+  constexpr u32 NUM_RESOURCES_GRAPHICS_SET_0 = 5u;
   constexpr u32 BINDING_ID_SET_0_UBO_CAMERA = 0u;
   constexpr u32 BINDING_ID_SET_0_UBO_MODEL = 1u;
+  constexpr u32 BINDING_ID_SET_0_UBO_INFO = 2u;
+  constexpr u32 BINDING_ID_SET_0_UBO_POS_X = 3u;
+  constexpr u32 BINDING_ID_SET_0_UBO_POS_Y = 4u;
 
   constexpr u32 NUM_RESOURCES_GRAPHICS_SET_1 = 1u;
   constexpr u32 BINDING_ID_SET_1_TEXTURE = 0u;
@@ -740,6 +743,27 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_UBO_INFO,               // at binding point 2 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // another uniform buffer
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_UBO_POS_X,               // at binding point 3 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // a storage buffer
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_UBO_POS_Y,               // at binding point 4 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
       }
     };
     // describe the descriptors in set 1
@@ -747,7 +771,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     {
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_1_TEXTURE,                         // at binding point 1 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, // an image
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // an image
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
@@ -977,16 +1001,21 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     //
     // we could have multiple descriptor pools, or one huge one
     // we are going to have one per pipeline in order to keep it simple
-    std::array <VkDescriptorPoolSize, 2u> const pool_sizes =
+    std::array <VkDescriptorPoolSize, 3u> const pool_sizes =
     {{ // yes this is deliberate!
       {
-        // we have 2 x descriptors set that consist of 2 x uniform buffers
+        // we have 2 x descriptors set that consist of 3 x uniform buffers
         .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         .descriptorCount = 4u
       },
       {
+          // we have 2 x descriptors set that consist of 2 x storage buffers
+          .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 4u
+      },
+      {
         // we have 2 x descriptor set that consist of 1 x image descriptor
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = 1u
       }
     }};
@@ -1170,6 +1199,21 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
             .buffer = buffer_graphics_model_output.buffer,
             .offset = 0u,
             .range = VK_WHOLE_SIZE
+        },
+        {
+            .buffer = buffer_info.buffer,
+            .offset = 0u,
+            .range = VK_WHOLE_SIZE
+        },
+        {
+            .buffer = buffer_pos_x.buffer,
+            .offset = 0u,
+            .range = VK_WHOLE_SIZE
+        },
+        {
+            .buffer = buffer_pos_y.buffer,
+            .offset = 0u,
+            .range = VK_WHOLE_SIZE
         }
     };
     VkDescriptorImageInfo const image_infos [] =
@@ -1184,7 +1228,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     VkWriteDescriptorSet const write_descriptors [] =
     {
       // TODO: fill in the gaps
-
+        
       // desc_set_0_graphics_input - binding 0
       {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1225,6 +1269,49 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .pBufferInfo = VK_NULL_HANDLE,
         .pTexelBufferView = VK_NULL_HANDLE
       }
+        ,
+
+        // desc_set_1_graphics_input - binding 0
+        {
+          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          //.pNext = VK_NULL_HANDLE,
+          .dstSet = desc_set_0_graphics_input.desc_set,
+          .dstBinding = 2u,
+          .dstArrayElement = 0u,
+          .descriptorCount = 1u,
+          .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // combined image sampler
+          .pImageInfo = VK_NULL_HANDLE , 
+          .pBufferInfo = &buffer_infos[2], // texture_compute_input
+          .pTexelBufferView = VK_NULL_HANDLE
+        },
+
+        // desc_set_1_graphics_input - binding 0
+        {
+          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          //.pNext = VK_NULL_HANDLE,
+          .dstSet = desc_set_0_graphics_input.desc_set,
+          .dstBinding = 3u,
+          .dstArrayElement = 0u,
+          .descriptorCount = 1u,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // combined image sampler
+          .pImageInfo = VK_NULL_HANDLE ,
+          .pBufferInfo = &buffer_infos[3], // texture_compute_input
+          .pTexelBufferView = VK_NULL_HANDLE
+        },
+
+        // desc_set_1_graphics_input - binding 0
+        {
+          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          //.pNext = VK_NULL_HANDLE,
+          .dstSet = desc_set_0_graphics_input.desc_set,
+          .dstBinding = 4u,
+          .dstArrayElement = 0u,
+          .descriptorCount = 1u,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // combined image sampler
+          .pImageInfo = VK_NULL_HANDLE ,
+          .pBufferInfo = &buffer_infos[4], // texture_compute_input
+          .pTexelBufferView = VK_NULL_HANDLE
+        }
     };
 
     vkUpdateDescriptorSets (device, // device
