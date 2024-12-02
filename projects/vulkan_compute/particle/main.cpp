@@ -158,7 +158,7 @@ constexpr unsigned int DATA_SIZE = sizeof(u32);
 
 constexpr float left_bound = -120, right_bound = 121, top_bound = 67.f, bottom_bound = -67.f;
 constexpr float MaxParticleSpeed = 1.f / (1u << 6u);
-constexpr float particleScale = 1.f / (1u << 2u);
+constexpr float particleScale = 1.f / (1u << 0u);
 
 struct compute_UBO_info_buffer
 {
@@ -931,7 +931,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     VkPipelineColorBlendAttachmentState const pipeline_colour_blend_attachment_states [] =
     {
       {
-#if 0
+#if 1
         .blendEnable = VK_TRUE,
 
         // if you want alpha blending
