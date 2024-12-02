@@ -30,7 +30,7 @@
 //      | 6) create vulkan compute & graphics queues
 
 // COMPUTE PIPELINE
-// TODO | 1) create compute pipeline
+//      | 1) create compute pipeline
 //      |   layout = 1 x descriptor set
 //      |     DSL 0 = 2 x storage image bindings
 //      | 2) create 1 x descriptor sets for compute pipeline
@@ -38,7 +38,7 @@
 //      | 3) create compute resources
 //      |   2 x storage images
 //      |     0 = texture_compute_input  = image from file                         - layout = general, usage = sampled + storage
-// TODO |     1 = texture_compute_output = empty texture, with matching dimensions - layout = general, usage = sampled + storage
+//      |     1 = texture_compute_output = empty texture, with matching dimensions - layout = general, usage = sampled + storage
 //      | 4) bind compute resources to compute descriptor set
 //      |   0 = desc_set_0_compute = texture_compute_input + texture_compute_output
 //      | 5) create vulkan command buffer
@@ -47,9 +47,9 @@
 
 // COMPUTE DISPATCH
 //      | 1) begin command buffer
-// TODO | 2) bind pipeline
-// TODO | 3) bind descriptor set
-// TODO | 4) dispatch
+//      | 2) bind pipeline
+//      | 3) bind descriptor set
+//      | 4) dispatch
 //      | 5) end command buffer
 //      | 6) submit
 //      | 7) wait for submit to complete (via fence)
@@ -66,16 +66,16 @@
 //      | 2) create 4 x descriptor sets for graphics pipeline
 //      |   DSI 0 = DSL 0 = camera info + input sprite world matrix
 //      |   DSI 1 = DSL 1 = input image
-// TODO |   DSI 2 = DSL 0 = camera info + output sprite world matrix
-// TODO |   DSI 3 = DSL 1 = output image
+//      |   DSI 2 = DSL 0 = camera info + output sprite world matrix
+//      |   DSI 3 = DSL 1 = output image
 //      | 3) create graphics resources
 //      |   textures created have already been made!
 //      |   3 x UBO buffers
-// TODO |     0 = buffer_graphics_camera       = camera_buffer - camera info                - usage = UBO, sharing = exclusive, flags = host visible
-// TODO |     1 = buffer_graphics_model_input  = model_buffer  - input sprite world matrix  - usage = UBO, sharing = exclusive, flags = host visible
-// TODO |     2 = buffer_graphics_model_output = model_buffer  - output sprite world matrix - usage = UBO, sharing = exclusive, flags = host visible
+//      |     0 = buffer_graphics_camera       = camera_buffer - camera info                - usage = UBO, sharing = exclusive, flags = host visible
+//      |     1 = buffer_graphics_model_input  = model_buffer  - input sprite world matrix  - usage = UBO, sharing = exclusive, flags = host visible
+//      |     2 = buffer_graphics_model_output = model_buffer  - output sprite world matrix - usage = UBO, sharing = exclusive, flags = host visible
 //      |   set buffers appropriately
-// TODO | 4) bind graphics + compute resources to graphics descriptor sets
+//      | 4) bind graphics + compute resources to graphics descriptor sets
 //      |   0 = desc_set_0_graphics_input  = buffer_graphics_camera + buffer_graphics_model_input  = for rendering input image
 //      |   1 = desc_set_1_graphics_input  = texture_compute_input                                 = for rendering input image
 //      |   2 = desc_set_0_graphics_output = buffer_graphics_camera + buffer_graphics_model_output = for rendering output image
@@ -101,24 +101,24 @@
 //      |   03) reset command buffer
 //      |   04) begin command buffer
 //      |   05) begin render pass
-// TODO |   06) bind pipeline
+//      |   06) bind pipeline
 //      | -----------------
-// TODO |     07) bind vertex buffer
-// TODO |     08) bind index buffer
-// TODO |     09) bind desc_set_0_graphics_input
-// TODO |     10) bind desc_set_1_graphics_input
-// TODO |     11) draw indexed
+//      |     07) bind vertex buffer
+//      |     08) bind index buffer
+//      |     09) bind desc_set_0_graphics_input
+//      |     10) bind desc_set_1_graphics_input
+//      |     11) draw indexed
 //      |       draw 'input' image on left
 //      | -----------------
-// TODO |     14) bind desc_set_0_graphics_output
-// TODO |     15) bind desc_set_1_graphics_output
-// TODO |     16) draw indexed
+//      |     14) bind desc_set_0_graphics_output
+//      |     15) bind desc_set_1_graphics_output
+//      |     16) draw indexed
 //      |       draw 'output' image on right
 //      | -----------------
 //      |   17) end render pass
 //      |   18) end command buffer
 //      |   19) reset fence
-// TODO |   20) submit
+//      |   20) submit
 //      |     wait on 'swapchain_image_available_semaphore' semaphore
 //      |   21) wait for submit to complete (via fence)
 //      |   22) present
@@ -148,7 +148,8 @@
 
 
 constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
-constexpr char const* COMPILED_COMPUTE_SHADER_PATH = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_particle.comp.spv";
+constexpr char const* COMPILED_COMPUTE_SHADER_PATH_PARTICLE = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_particle.comp.spv";
+constexpr char const* COMPILED_COMPUTE_SHADER_PATH_COLLISION = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_collision.comp.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle/sprite.vert.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
@@ -159,6 +160,10 @@ constexpr unsigned int DATA_SIZE = sizeof(u32);
 constexpr float left_bound = -120, right_bound = 121, top_bound = 67.f, bottom_bound = -67.f;
 constexpr float MaxParticleSpeed = 1.f / (1u << 6u);
 constexpr float particleScale = 1.f / (1u << 0u);
+
+/// <summary>
+///  pipeline per compute shader.
+/// </summary>
 
 struct compute_UBO_info_buffer
 {
@@ -333,7 +338,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
     VkShaderModule shader_module_compute = VK_NULL_HANDLE;
     if (!create_vulkan_shader (device,
-      COMPILED_COMPUTE_SHADER_PATH,
+      COMPILED_COMPUTE_SHADER_PATH_PARTICLE,
       shader_module_compute))
     {
       DBG_ASSERT (false);
@@ -711,8 +716,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
                         desc_set_1_graphics_input;  // for rendering input image , texture_compute_input
 
   vulkan_buffer buffer_graphics_camera,
-    buffer_graphics_model_input,  // for when rendering the input texture
-    buffer_graphics_model_output; // for when rendering the output texture
+      buffer_graphics_model_input;  // for when rendering the input texture
 
   vulkan_texture texture_particle;
 
@@ -1100,16 +1104,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           DBG_ASSERT(false);
           return -1;
       }
-      if (!create_vulkan_buffer(physical_device, device,
-          sizeof(model_buffer),
-          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-          VK_SHARING_MODE_EXCLUSIVE,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-          buffer_graphics_model_output))
-      {
-          DBG_ASSERT(false);
-          return -1;
-      }
 
       // TRANSITION IMAGE LAYOUT
       {
@@ -1162,22 +1156,6 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           0.f,
           0.f, 0.f,
           texture_dim.x * particleScale, texture_dim.y * particleScale);
-      }))
-    {
-      DBG_ASSERT (false);
-      return -1;
-    }
-
-    if (!map_and_unmap_memory (device,
-      buffer_graphics_model_output.memory,
-      [&texture_dim](void* mem)
-      {
-        model_buffer* buf = (model_buffer*)mem;
-
-        buf->model_matrix = fast_transform_2D (texture_dim.x / 2.f, 0.f,
-          0.f,
-          0.f, 0.f,
-          texture_dim.x, texture_dim.y);
       }))
     {
       DBG_ASSERT (false);
@@ -1655,7 +1633,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_command_buffers (1u, command_pool_graphics, &command_buffer_graphics);
       release_vulkan_command_pool (command_pool_graphics);
 
-      release_vulkan_buffer (device, buffer_graphics_model_output);
+
       release_vulkan_buffer (device, buffer_graphics_model_input);
       release_vulkan_buffer (device, buffer_graphics_camera);
 
@@ -1679,6 +1657,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_command_pool (command_pool_compute);
 
       release_vulkan_texture (device, texture_particle);
+
+      release_vulkan_buffer(device, buffer_pos_x);
+      release_vulkan_buffer(device, buffer_pos_y);
+      release_vulkan_buffer(device, buffer_vel_x);
+      release_vulkan_buffer(device, buffer_vel_y);
+      release_vulkan_buffer(device, buffer_info);
 
       release_vulkan_descriptor_sets (device,
         1u, &desc_set_0_compute);
