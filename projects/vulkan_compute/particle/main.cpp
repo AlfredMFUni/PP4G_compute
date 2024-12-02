@@ -1111,7 +1111,20 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           return -1;
       }
 
+      // TRANSITION IMAGE LAYOUT
+      {
+          // NOTE: get output image ready for rendering via fragment shader
+          // can only perform this now compute write pipeline has completed
+          if (!transition_image_layout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, texture_particle))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
 
+          // NOTE: this function is overloaded
+          // the above version performs the transition as a 'one off' outside a command buffer
+          // the other overload will add the required commands to an EXISTING command buffer
+      }
     // as the data will never change (because we are not actually double buffering and the camera/sprites will never move)
     // we can set the data in these buffers upfront
 
@@ -1618,20 +1631,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           return -1;
         }
 
-        // TRANSITION IMAGE LAYOUT
-        {
-            // NOTE: get output image ready for rendering via fragment shader
-            // can only perform this now compute write pipeline has completed
-            if (!transition_image_layout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, texture_particle))
-            {
-                DBG_ASSERT(false);
-                return -1;
-            }
 
-            // NOTE: this function is overloaded
-            // the above version performs the transition as a 'one off' outside a command buffer
-            // the other overload will add the required commands to an EXISTING command buffer
-        }
       }
 
       if (!present ())
