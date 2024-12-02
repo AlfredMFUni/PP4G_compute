@@ -15,8 +15,10 @@ layout (set = 0, binding = 1) uniform model
 layout (set = 0, binding = 2) uniform info_buffer
 {
   uint num_elements;
-  float window_width;
-  float window_height;
+  float left;
+  float right;
+  float top;
+  float bottom;
 } UBO_info;
 
 layout (std430, set = 0, binding = 3) buffer pos_x_buffer

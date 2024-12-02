@@ -153,17 +153,17 @@ constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vu
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 
-constexpr unsigned int NUM_PARTICLES = 1u << 16;
+constexpr unsigned int NUM_PARTICLES = 1u << 12;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
 
-constexpr int windowWidth = 1280, windowHeight = 720;
-constexpr float MaxParticleSpeed = 1.f;
+constexpr float left_bound = -120, right_bound = 121, top_bound = 67.f, bottom_bound = -67.f;
+constexpr float MaxParticleSpeed = 1.f / (1u << 6u);
+constexpr float particleScale = 1.f / (1u << 2u);
 
 struct compute_UBO_info_buffer
 {
     u32 num_particles;
-    f32 windowWidth;
-    f32 windowHeight;
+    f32 bounds[4u];
 };
 
 struct compute_push_constants
@@ -595,10 +595,9 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   {
       std::random_device rd;
       std::ranlux24_base re(rd()); // std::default_engine (std::mersenne_twister_engine) uses 5K bytes on the stack!!!
-      std::uniform_real_distribution <f32> X_Pos_Dist(0.f, windowWidth);
-      std::uniform_real_distribution <f32> Y_Pos_Dist(0.f, windowHeight);
-      std::uniform_real_distribution <f32> X_Vel_Dist(-MaxParticleSpeed, MaxParticleSpeed);
-      std::uniform_real_distribution <f32> Y_Vel_Dist(-MaxParticleSpeed, MaxParticleSpeed);
+      std::uniform_real_distribution <f32> X_Pos_Dist(left_bound, right_bound);
+      std::uniform_real_distribution <f32> Y_Pos_Dist(bottom_bound, top_bound);
+      std::uniform_real_distribution <f32> Vel_Dist(-MaxParticleSpeed, MaxParticleSpeed);
 
       if (!map_and_unmap_memory(device,
           buffer_pos_x.memory, [&re, &X_Pos_Dist](void* mapped_memory)
@@ -627,12 +626,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           return -1;
       }
       if (!map_and_unmap_memory(device,
-          buffer_vel_x.memory, [&re, &X_Vel_Dist](void* mapped_memory)
+          buffer_vel_x.memory, [&re, &Vel_Dist](void* mapped_memory)
           {
               f32* data = (f32*)mapped_memory;
               for (u32 i = 0u; i < NUM_PARTICLES; ++i)
               {
-                  data[i] = X_Vel_Dist(re);
+                  data[i] =  Vel_Dist(re);
               }
           }))
       {
@@ -640,12 +639,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           return -1;
       }
       if (!map_and_unmap_memory(device,
-          buffer_vel_y.memory, [&re, &Y_Vel_Dist](void* mapped_memory)
+          buffer_vel_y.memory, [&re, &Vel_Dist](void* mapped_memory)
           {
               f32* data = (f32*)mapped_memory;
               for (u32 i = 0u; i < NUM_PARTICLES; ++i)
               {
-                  data[i] = Y_Vel_Dist(re);
+                  data[i] =  Vel_Dist(re);
               }
           }))
       {
@@ -657,12 +656,13 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       if (!map_and_unmap_memory(device,
           buffer_info.memory, [](void* mapped_memory)
           {
-              u32* data = (u32*)mapped_memory;
-              (*data) = NUM_PARTICLES;
-              ++data;
-              f32* data2 = (f32*)data;
-              data2[0] = windowWidth;
-              data2[1] = windowHeight;
+              u32* num_elements = (u32*)mapped_memory;
+              (*num_elements) = NUM_PARTICLES;
+              f32* bounds = (f32*)(num_elements + 1);
+              bounds[0] = left_bound;
+              bounds[1] = right_bound;
+              bounds[2] = top_bound;
+              bounds[3] = bottom_bound;
           }))
       {
           DBG_ASSERT(false);
@@ -1145,10 +1145,10 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       {
         model_buffer* buf = (model_buffer*)mem;
 
-        buf->model_matrix = fast_transform_2D (-texture_dim.x / 2.f, 0.f,
+        buf->model_matrix = fast_transform_2D (-(texture_dim.x * particleScale) / 2.f, 0.f,
           0.f,
           0.f, 0.f,
-          texture_dim.x, texture_dim.y);
+          texture_dim.x * particleScale, texture_dim.y * particleScale);
       }))
     {
       DBG_ASSERT (false);
