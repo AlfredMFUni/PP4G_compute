@@ -1,0 +1,65 @@
+// compute shader
+#version 430
+
+layout (local_size_x = 256) in;
+
+layout (std430, set = 0, binding = 0) buffer pos_x_buffer
+{
+  float data [];
+} SBO_pos_x;
+
+layout (std430, set = 0, binding = 1) buffer pos_y_buffer
+{
+  float data [];
+} SBO_pos_y;
+
+layout (std430, set = 0, binding = 2) buffer vel_x_buffer
+{
+  float data [];
+} SBO_vel_x;
+
+layout (std430, set = 0, binding = 3) buffer vel_y_buffer
+{
+  float data [];
+} SBO_vel_y;
+
+layout (set = 0, binding = 4) uniform info_buffer
+{
+  uint num_elements;
+  float origin_x;
+  float origin_y;
+  float area_width;
+  float area_height;
+  uint temp_bucket_x;
+  uint temp_bucket_y;
+  uint buckets_x;
+  uint buckets_y;
+  float temp_bucket_dim_x;
+  float temp_bucket_dim_y;
+  float bucket_dim;
+  float particle_radius;
+} UBO_info;
+
+layout (std430, set = 0, binding = 5) readonly buffer temp_bucket_buffer
+{
+  uint data [];
+} SBO_temp;
+
+layout (std430, set = 0, binding = 6) buffer bucket_buffer
+{
+  uint data [];
+} SBO_bucket;
+
+void main ()
+{
+  const uint bucket_size = 5 * 32 * 32;
+  // [temp_bucket_x_high][temp_bucket_y_low][gl_WorkGroupID.x][InWarpIndex][0]
+  //currindex = SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id];
+  //int temp_bucket_x_index; int temp_bucket_y_index;
+  //mod((gl_GlobalInvocationID.x * UBO_info.bucket_dim) / UBO_info.temp_bucket_dim_x, temp_bucket_x_index);
+  //mod((gl_GlobalInvocationID.y * UBO_info.bucket_dim) / UBO_info.temp_bucket_dim_x, temp_bucket_y_index);
+  //for()
+  //{
+  //  
+  //}
+}

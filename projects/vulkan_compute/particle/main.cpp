@@ -146,29 +146,57 @@
 #define NOMINMAX                  // prevent Windows macros defining their own min and max macros
 #include <Windows.h>              // for WinMain
 
+static constexpr unsigned int ApproxCeilIntCast(float in) { return static_cast<unsigned int>(in - 0.00001f) + 1; }
+static constexpr unsigned int IntCeilDiv(unsigned int numerator, unsigned int denominator) { return ((numerator - 1u) / denominator) + 1u; }
 
-constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
+constexpr char const* WINDOW_TITLE = "vulkan_compute_collision";
 constexpr char const* COMPILED_COMPUTE_SHADER_PATH_PARTICLE = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_particle.comp.spv";
 constexpr char const* COMPILED_COMPUTE_SHADER_PATH_COLLISION = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_collision.comp.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle/sprite.vert.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
+
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
+constexpr unsigned int PARTICLE_TEXTURE_SIZE = 8u;
 
 constexpr unsigned int NUM_PARTICLES = 1u << 12;
+
+constexpr unsigned int NUM_THREAD_GROUPS_COMPUTE_PARTICLES = 32u;
+constexpr unsigned int WARP_WIDTH = 32u;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
+constexpr unsigned int THREAD_GROUP_SIZE_COMPUTE_PARTICLE = IntCeilDiv((NUM_PARTICLES), (NUM_THREAD_GROUPS_COMPUTE_PARTICLES));
+constexpr unsigned int NUM_PARTICLES_PER_CORE = IntCeilDiv((THREAD_GROUP_SIZE_COMPUTE_PARTICLE), (WARP_WIDTH));
 
-constexpr float left_bound = -120, right_bound = 121, top_bound = 67.f, bottom_bound = -67.f;
-constexpr float MaxParticleSpeed = 1.f / (1u << 6u);
-constexpr float particleScale = 1.f / (1u << 0u);
+constexpr int BOUNDS_X = -120, BOUNDS_Y = -67;
+constexpr unsigned int BOUNDS_WIDTH = 241u, BOUNDS_HEIGHT = 134u;
+constexpr float MAX_PARTICLE_SPEED = 1.f / (1u << 6u);
+constexpr float PARTICLE_SCALE = 1.f / (1u << 0u);
+constexpr float DRAW_SCALING = 5.4f;
+constexpr float PARTICLE_SIZE = PARTICLE_TEXTURE_SIZE * PARTICLE_SCALE / DRAW_SCALING;
 
-/// <summary>
-///  pipeline per compute shader.
-/// </summary>
+constexpr unsigned int NUM_TEMP_BUCKETS_X = 6u, NUM_TEMP_BUCKETS_Y = 4u;
+constexpr unsigned int TEMP_BUCKET_SIZE = (NUM_PARTICLES_PER_CORE + 1) * WARP_WIDTH * NUM_THREAD_GROUPS_COMPUTE_PARTICLES;
+
+constexpr float BUCKET_DIM = PARTICLE_SIZE * 1.f;
+constexpr unsigned int NUM_BUCKETS_X = ApproxCeilIntCast(BOUNDS_WIDTH / BUCKET_DIM), NUM_BUCKETS_Y = ApproxCeilIntCast(BOUNDS_HEIGHT / BUCKET_DIM);
+constexpr unsigned int MAX_PARTICLES_PER_BUCKET = 9u;
+constexpr unsigned int BUCKET_SIZE = MAX_PARTICLES_PER_BUCKET + 1u;
+
+constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_X = IntCeilDiv(NUM_BUCKETS_X, NUM_TEMP_BUCKETS_X);
+constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_Y = IntCeilDiv(NUM_BUCKETS_Y, NUM_TEMP_BUCKETS_Y);
+constexpr float TEMP_BUCKET_DIM_X = BUCKET_DIM * NUM_BUCKETS_PER_TEMP_BUCKET_X, TEMP_BUCKET_DIM_Y = BUCKET_DIM * NUM_BUCKETS_PER_TEMP_BUCKET_Y;
+
+constexpr unsigned int TEMP_BUCKET_BUFFER_SIZE = TEMP_BUCKET_SIZE * NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * DATA_SIZE;
+constexpr unsigned int BUCKET_BUFFER_SIZE = BUCKET_SIZE * NUM_BUCKETS_X * NUM_BUCKETS_Y * DATA_SIZE;
+
+
 
 struct compute_UBO_info_buffer
 {
     u32 num_particles;
     f32 bounds[4u];
+    u32 bucketNums[4u];
+    f32 bucketDims[3u];
+    f32 Particle_radius;
 };
 
 struct compute_push_constants
@@ -238,12 +266,13 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   constexpr u32 NUM_SETS_COMPUTE = 1u;
 
-  constexpr u32 NUM_RESOURCES_COMPUTE_SET_0 = 5u;
+  constexpr u32 NUM_RESOURCES_COMPUTE_SET_0 = 6u;
   constexpr u32 BINDING_ID_SET_0_X_POSITION = 0u;
   constexpr u32 BINDING_ID_SET_0_Y_POSITION = 1u;
   constexpr u32 BINDING_ID_SET_0_X_VELOCITY = 2u;
   constexpr u32 BINDING_ID_SET_0_Y_VELOCITY = 3u;
   constexpr u32 BINDING_ID_SET_0_INFO       = 4u;
+  constexpr u32 BINDING_ID_SET_0_TEMP_BUCKETS = 5u;
 
   std::array <VkDescriptorSetLayout, NUM_SETS_COMPUTE> descriptor_set_layouts_compute = { VK_NULL_HANDLE };
   VkPipelineLayout pipeline_layout_compute = VK_NULL_HANDLE;
@@ -252,7 +281,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   VkDescriptorPool descriptor_pool_compute = VK_NULL_HANDLE;
   vulkan_descriptor_set desc_set_0_compute; // for compute, X,Y - Pos,Vel
 
-  vulkan_buffer buffer_pos_x, buffer_pos_y, buffer_vel_x, buffer_vel_y, buffer_info;
+  vulkan_buffer buffer_pos_x, buffer_pos_y, buffer_vel_x, buffer_vel_y, buffer_info, buffer_bucket_temp;
 
   VkCommandPool command_pool_compute = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_compute = VK_NULL_HANDLE;
@@ -267,35 +296,42 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     {
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_0_X_POSITION,          // at binding point 0 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // an image (input)
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // a storage buffer (X_pos[NUM_PARTICLES])
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_0_Y_POSITION,         // at binding point 1 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another image (output)
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer (Y_pos[NUM_PARTICLES])
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_0_X_VELOCITY,         // at binding point 2 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another image (output)
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer (X_vel[NUM_PARTICLES])
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_0_Y_VELOCITY,         // at binding point 3 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another image (output)
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer (Y_vel[NUM_PARTICLES])
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
         .binding = BINDING_ID_SET_0_INFO,               // at binding point 4 we have
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // another image (output)
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // a uniform buffer
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_TEMP_BUCKETS,       // at binding point 5 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // yet another storage buffer
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
@@ -344,7 +380,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       DBG_ASSERT (false);
       return -1;
     }
-    // error: type mismatch storage image != storage buffer
+
     if (!create_vulkan_pipeline_compute (device,
       shader_module_compute, "main",
       pipeline_layout_compute,
@@ -368,7 +404,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       {
         // we have 1 x descriptor set that consists of 4 x 'storage buffer' descriptors
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 4u
+        .descriptorCount = 5u
       },
       {
         .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -457,6 +493,16 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               DBG_ASSERT(false);
               return -1;
           }
+          if (!create_vulkan_buffer(physical_device, device,
+              NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * TEMP_BUCKET_SIZE * DATA_SIZE,
+              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+              VK_SHARING_MODE_EXCLUSIVE,
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+              buffer_bucket_temp))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
       }
 
     // needs to have the exact same size as texture_compute_input
@@ -492,6 +538,11 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         },
         {
           .buffer = buffer_info.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_bucket_temp.buffer,
           .offset = 0u,
           .range = VK_WHOLE_SIZE
         }
@@ -563,6 +614,19 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .pImageInfo = VK_NULL_HANDLE,
         .pBufferInfo = &buffer_infos[4],
           .pTexelBufferView = VK_NULL_HANDLE
+        },
+        // desc_set_0_compute
+        {
+          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          //.pNext = VK_NULL_HANDLE,
+          .dstSet = desc_set_0_compute.desc_set,
+          .dstBinding = BINDING_ID_SET_0_TEMP_BUCKETS,
+          .dstArrayElement = 0u,
+          .descriptorCount = 1u,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .pImageInfo = VK_NULL_HANDLE,
+          .pBufferInfo = &buffer_infos[5],
+          .pTexelBufferView = VK_NULL_HANDLE
         }
     };
 
@@ -600,9 +664,9 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   {
       std::random_device rd;
       std::ranlux24_base re(rd()); // std::default_engine (std::mersenne_twister_engine) uses 5K bytes on the stack!!!
-      std::uniform_real_distribution <f32> X_Pos_Dist(left_bound, right_bound);
-      std::uniform_real_distribution <f32> Y_Pos_Dist(bottom_bound, top_bound);
-      std::uniform_real_distribution <f32> Vel_Dist(-MaxParticleSpeed, MaxParticleSpeed);
+      std::uniform_real_distribution <f32> X_Pos_Dist(0.f, BOUNDS_WIDTH);
+      std::uniform_real_distribution <f32> Y_Pos_Dist(0.f, BOUNDS_HEIGHT);
+      std::uniform_real_distribution <f32> Vel_Dist(-MAX_PARTICLE_SPEED, MAX_PARTICLE_SPEED);
 
       if (!map_and_unmap_memory(device,
           buffer_pos_x.memory, [&re, &X_Pos_Dist](void* mapped_memory)
@@ -661,13 +725,415 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       if (!map_and_unmap_memory(device,
           buffer_info.memory, [](void* mapped_memory)
           {
-              u32* num_elements = (u32*)mapped_memory;
-              (*num_elements) = NUM_PARTICLES;
-              f32* bounds = (f32*)(num_elements + 1);
-              bounds[0] = left_bound;
-              bounds[1] = right_bound;
-              bounds[2] = top_bound;
-              bounds[3] = bottom_bound;
+              u32* u32_data = (u32*)mapped_memory;
+              f32* f32_data = (f32*)mapped_memory;
+              u32_data[0u] = NUM_PARTICLES;
+              f32_data[1u] = static_cast<float>(BOUNDS_X);
+              f32_data[2u] = static_cast<float>(BOUNDS_Y);
+              f32_data[3u] = static_cast<float>(BOUNDS_WIDTH);
+              f32_data[4u] = static_cast<float>(BOUNDS_HEIGHT);
+              u32_data[5u] = NUM_TEMP_BUCKETS_X;
+              u32_data[6u] = NUM_TEMP_BUCKETS_Y;
+              u32_data[7u] = NUM_BUCKETS_X;
+              u32_data[8u] = NUM_BUCKETS_Y;
+              f32_data[9u] = TEMP_BUCKET_DIM_X;
+              f32_data[10u] = TEMP_BUCKET_DIM_Y;
+              f32_data[11u] = BUCKET_DIM;
+              f32_data[12u] = PARTICLE_SIZE * 0.5f;
+          }))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }      
+      
+      if (!map_and_unmap_memory(device,
+          buffer_bucket_temp.memory, [](void* mapped_memory)
+          {
+              constexpr unsigned int BUFFER_SIZE = NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * NUM_THREAD_GROUPS_COMPUTE_PARTICLES * WARP_WIDTH * NUM_PARTICLES_PER_CORE;
+              u32* data = (u32*)mapped_memory;
+              for (int i(0); i < BUFFER_SIZE; ++i)
+              {
+                  data[i] = 0u;
+              }
+          }))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+  }
+
+  // COLLISION PIPELINE
+
+  constexpr u32 NUM_SETS_COLLISION= 1u;
+
+  constexpr u32 NUM_RESOURCES_COLLISION_SET_0 = 7u;
+  constexpr u32 BINDING_ID_SET_0_COLLISION_X_POSITION = 0u;
+  constexpr u32 BINDING_ID_SET_0_COLLISION_Y_POSITION = 1u; 
+  constexpr u32 BINDING_ID_SET_0_COLLISION_X_VELOCITY = 2u; 
+  constexpr u32 BINDING_ID_SET_0_COLLISION_Y_VELOCITY = 3u;
+  constexpr u32 BINDING_ID_SET_0_COLLISION_INFO = 4u;
+  constexpr u32 BINDING_ID_SET_0_COLLISION_TEMP_BUCKETS = 5u;
+  constexpr u32 BINDING_ID_SET_0_COLLISION_BUCKETS = 6u;
+
+  std::array <VkDescriptorSetLayout, NUM_SETS_COLLISION> descriptor_set_layouts_collision = { VK_NULL_HANDLE };
+  VkPipelineLayout pipeline_layout_collision = VK_NULL_HANDLE;
+  VkPipeline pipeline_collision = VK_NULL_HANDLE;
+
+  VkDescriptorPool descriptor_pool_collision = VK_NULL_HANDLE;
+  vulkan_descriptor_set desc_set_0_collision; // for compute, X,Y - Pos,Vel
+
+  vulkan_buffer buffer_bucket;
+
+  VkCommandPool command_pool_collision = VK_NULL_HANDLE;
+  VkCommandBuffer command_buffer_collision = VK_NULL_HANDLE;
+
+  VkFence fence_collision = VK_NULL_HANDLE;
+
+
+  // create collision pipeline
+  {
+      // describe the descriptors in set 0
+      std::array <VkDescriptorSetLayoutBinding, NUM_RESOURCES_COLLISION_SET_0> const descriptor_set_layout_binding_info_0 =
+      {
+        VkDescriptorSetLayoutBinding {
+          .binding = BINDING_ID_SET_0_COLLISION_X_POSITION,          // at binding point 0 we have
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // a storage buffer (X_pos[NUM_PARTICLES])
+          .descriptorCount = 1u,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+          .pImmutableSamplers = VK_NULL_HANDLE
+        },
+        VkDescriptorSetLayoutBinding {
+          .binding = BINDING_ID_SET_0_COLLISION_Y_POSITION,         // at binding point 1 we have
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer (Y_pos[NUM_PARTICLES])
+          .descriptorCount = 1u,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+          .pImmutableSamplers = VK_NULL_HANDLE
+        },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_COLLISION_X_VELOCITY,         // at binding point 2 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer (X_vel[NUM_PARTICLES])
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_COLLISION_Y_VELOCITY,         // at binding point 3 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer (Y_vel[NUM_PARTICLES])
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+        VkDescriptorSetLayoutBinding {
+          .binding = BINDING_ID_SET_0_COLLISION_INFO,               // at binding point 4 we have
+          .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // a uniform buffer
+          .descriptorCount = 1u,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+          .pImmutableSamplers = VK_NULL_HANDLE
+        },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_COLLISION_TEMP_BUCKETS,       // at binding point 5 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // yet another storage buffer
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      },
+      VkDescriptorSetLayoutBinding {
+        .binding = BINDING_ID_SET_0_COLLISION_BUCKETS,       // at binding point 6 we have
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // yet another storage buffer
+        .descriptorCount = 1u,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .pImmutableSamplers = VK_NULL_HANDLE
+      }
+      };
+      // group up all descriptor layout descriptions
+      std::array <std::span <const VkDescriptorSetLayoutBinding>, NUM_SETS_COLLISION> const descriptor_set_layout_bindings =
+      {
+        descriptor_set_layout_binding_info_0 // set 0
+                                             // set 1...
+      };
+      if (!create_vulkan_descriptor_set_layouts(device,
+          NUM_SETS_COLLISION,
+          descriptor_set_layout_bindings.data(),
+          descriptor_set_layouts_collision.data()))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+
+
+      if (!create_vulkan_pipeline_layout(device,
+          descriptor_set_layouts_collision.size(), descriptor_set_layouts_collision.data(),
+          0u, nullptr,
+          pipeline_layout_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+
+
+      VkShaderModule shader_module_collision = VK_NULL_HANDLE;
+      if (!create_vulkan_shader(device,
+          COMPILED_COMPUTE_SHADER_PATH_COLLISION,
+          shader_module_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+      // error: type mismatch storage image != storage buffer
+      if (!create_vulkan_pipeline_compute(device,
+          shader_module_collision, "main",
+          pipeline_layout_collision,
+          pipeline_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+
+      release_vulkan_shader(device,
+          shader_module_collision); // don't need shader object now we have the pipeline
+  }
+  // create collision descriptor sets
+  {
+      // create pool of descriptors from which our descriptor sets will draw from
+      //
+      // we could have multiple descriptor pools, or one huge one
+      // we are going to have one per pipeline in order to keep it simple
+      std::array <VkDescriptorPoolSize, 2u> const pool_sizes =
+      { { // yes this is deliberate!
+        {
+              // we have 1 x descriptor set that consists of 4 x 'storage buffer' descriptors
+              .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+              .descriptorCount = 6u
+            },
+            {
+              .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+              .descriptorCount = 1u
+            }
+          // if you also needed n uniform buffer descriptors you would need to create a new VkDescriptorPoolSize here
+        } };
+      if (!create_vulkan_descriptor_pool(device,
+          1u, // how many descriptor sets will we make from the sets in the pool?
+          pool_sizes.size(), pool_sizes.data(),
+          descriptor_pool_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+
+      std::array <vulkan_descriptor_set_info, NUM_SETS_COLLISION> const descriptor_set_infos =
+      { {
+              // set 0
+              {
+                .desc_pool = &descriptor_pool_collision,         // the pool from which to allocate the individual descriptors from
+                .layout = &descriptor_set_layouts_collision[0], // layout of the descriptor set
+                .set_index = 0u,                               // index of the descriptor set
+                .out_set = &desc_set_0_collision                 // pointer to where to instantiate the descriptor set to
+              }
+          // set 1...
+        } };
+      if (!create_vulkan_descriptor_sets(device,
+          descriptor_set_infos.size(), descriptor_set_infos.data()))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+  }
+  // create compute resources
+  {
+      {
+
+          if (!create_vulkan_buffer(physical_device, device,
+              NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * TEMP_BUCKET_SIZE * DATA_SIZE,
+              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+              VK_SHARING_MODE_EXCLUSIVE,
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+              buffer_bucket))
+          {
+              DBG_ASSERT(false);
+              return -1;
+          }
+      }
+
+
+  }
+  // bind collision resources to collision descriptor set
+  {
+      // desc_set_0_compute = for compute = texture_compute_input + texture_compute_output
+      VkDescriptorBufferInfo const buffer_infos[NUM_RESOURCES_COLLISION_SET_0] =
+      {
+        {
+          .buffer = buffer_pos_x.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_pos_y.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_vel_x.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_vel_y.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_info.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_bucket_temp.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        },
+        {
+          .buffer = buffer_bucket.buffer,
+          .offset = 0u,
+          .range = VK_WHOLE_SIZE
+        }
+      };
+
+      VkWriteDescriptorSet const write_descriptors[NUM_RESOURCES_COLLISION_SET_0] =
+      {
+          // desc_set_0_compute
+          {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_X_POSITION,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = VK_NULL_HANDLE,
+            .pBufferInfo = &buffer_infos[0],
+            .pTexelBufferView = VK_NULL_HANDLE
+          },
+          // desc_set_0_compute
+          {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_Y_POSITION,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = VK_NULL_HANDLE,
+            .pBufferInfo = &buffer_infos[1],
+            .pTexelBufferView = VK_NULL_HANDLE
+          },{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_X_VELOCITY,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = VK_NULL_HANDLE,
+            .pBufferInfo = &buffer_infos[2],
+            .pTexelBufferView = VK_NULL_HANDLE
+          },
+          // desc_set_0_compute
+          {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_Y_VELOCITY,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = VK_NULL_HANDLE,
+            .pBufferInfo = &buffer_infos[3],
+            .pTexelBufferView = VK_NULL_HANDLE
+          },
+          // desc_set_0_compute
+          {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_INFO,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          .pImageInfo = VK_NULL_HANDLE,
+          .pBufferInfo = &buffer_infos[4],
+            .pTexelBufferView = VK_NULL_HANDLE
+          },
+          // desc_set_0_compute
+          {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_TEMP_BUCKETS,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = VK_NULL_HANDLE,
+            .pBufferInfo = &buffer_infos[5],
+            .pTexelBufferView = VK_NULL_HANDLE
+          },
+          // desc_set_0_compute
+          {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            //.pNext = VK_NULL_HANDLE,
+            .dstSet = desc_set_0_collision.desc_set,
+            .dstBinding = BINDING_ID_SET_0_COLLISION_BUCKETS,
+            .dstArrayElement = 0u,
+            .descriptorCount = 1u,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = VK_NULL_HANDLE,
+            .pBufferInfo = &buffer_infos[6],
+            .pTexelBufferView = VK_NULL_HANDLE
+          }
+      };
+
+      vkUpdateDescriptorSets(device, // device
+          NUM_RESOURCES_COLLISION_SET_0,  // descriptorWriteCount
+          write_descriptors,            // pDescriptorWrites
+          0u,                           // descriptorCopyCount
+          VK_NULL_HANDLE);              // pDescriptorCopies
+  }
+  // create collision command buffers
+  {
+      if (!create_vulkan_command_pool(VK_QUEUE_COMPUTE_BIT, command_pool_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+      if (!create_vulkan_command_buffers(1u, command_pool_collision, &command_buffer_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+  }
+  // create compute sync objects
+  // at least one per submit (can be reused if in loop)
+  {
+      if (!create_vulkan_fences(1u, 0u, &fence_collision))
+      {
+          DBG_ASSERT(false);
+          return -1;
+      }
+  }
+
+
+  // SET INPUT/INFO BUFFERS
+  {
+
+
+      if (!map_and_unmap_memory(device,
+          buffer_bucket_temp.memory, [](void* mapped_memory)
+          {
+              constexpr unsigned int BUFFER_SIZE = NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * NUM_THREAD_GROUPS_COMPUTE_PARTICLES * WARP_WIDTH * NUM_PARTICLES_PER_CORE;
+              u32* data = (u32*)mapped_memory;
+              for (int i(0); i < BUFFER_SIZE; ++i)
+              {
+                  data[i] = 0u;
+              }
           }))
       {
           DBG_ASSERT(false);
@@ -701,8 +1167,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   constexpr u32 BINDING_ID_SET_0_UBO_CAMERA = 0u;
   constexpr u32 BINDING_ID_SET_0_UBO_MODEL = 1u;
   constexpr u32 BINDING_ID_SET_0_UBO_INFO = 2u;
-  constexpr u32 BINDING_ID_SET_0_UBO_POS_X = 3u;
-  constexpr u32 BINDING_ID_SET_0_UBO_POS_Y = 4u;
+  constexpr u32 BINDING_ID_SET_0_SBO_POS_X = 3u;
+  constexpr u32 BINDING_ID_SET_0_SBO_POS_Y = 4u;
 
   constexpr u32 NUM_RESOURCES_GRAPHICS_SET_1 = 1u;
   constexpr u32 BINDING_ID_SET_1_TEXTURE = 0u;
@@ -756,14 +1222,14 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
-        .binding = BINDING_ID_SET_0_UBO_POS_X,               // at binding point 3 we have
+        .binding = BINDING_ID_SET_0_SBO_POS_X,               // at binding point 3 we have
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // a storage buffer
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         .pImmutableSamplers = VK_NULL_HANDLE
       },
       VkDescriptorSetLayoutBinding {
-        .binding = BINDING_ID_SET_0_UBO_POS_Y,               // at binding point 4 we have
+        .binding = BINDING_ID_SET_0_SBO_POS_Y,               // at binding point 4 we have
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // another storage buffer
         .descriptorCount = 1u,
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
@@ -1152,10 +1618,10 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       {
         model_buffer* buf = (model_buffer*)mem;
 
-        buf->model_matrix = fast_transform_2D (-(texture_dim.x * particleScale) / 2.f, 0.f,
+        buf->model_matrix = fast_transform_2D (-(texture_dim.x * PARTICLE_SCALE) / 2.f, 0.f,
           0.f,
           0.f, 0.f,
-          texture_dim.x * particleScale, texture_dim.y * particleScale);
+          texture_dim.x * PARTICLE_SCALE, texture_dim.y * PARTICLE_SCALE);
       }))
     {
       DBG_ASSERT (false);
@@ -1416,12 +1882,54 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
                       sizeof(compute_push_constants),        // size
                       &data);                                // pValues
 
-                  u32 ThreadGroup_x = 256u;
+                  u32 ThreadGroup_x = NUM_THREAD_GROUPS_COMPUTE_PARTICLES;
 
                   vkCmdDispatch(command_buffer_compute,
                       ThreadGroup_x, 1u, 1u);
               }
               if (!end_command_buffer(command_buffer_compute))
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
+          }
+
+          // RECORD COMMAND BUFFER
+          {
+              if (!CHECK_VULKAN_RESULT(vkResetCommandBuffer(command_buffer_collision, 0u)))
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
+              if (!begin_command_buffer(command_buffer_collision, 0u))
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
+              {
+                  // any compute related command after this point is attached to this pipeline (on this command buffer)
+                  vkCmdBindPipeline(command_buffer_collision, // Command Buffer
+                      VK_PIPELINE_BIND_POINT_COMPUTE,       // Pipeline Bind Point
+                      pipeline_collision);                    // Pipeline
+
+                  // bind descriptor set - texture_compute_input & texture_compute_output
+                  vkCmdBindDescriptorSets(command_buffer_collision, //  commandBuffer
+                      VK_PIPELINE_BIND_POINT_COMPUTE,             //  pipelineBindPoint
+                      pipeline_layout_collision,                    //  layout
+                      desc_set_0_collision.set_index,               //  firstSet
+                      1u,                                         //  descriptorSetCount
+                      &desc_set_0_collision.desc_set,               //  pDescriptorSets
+                      0u,                                         //  dynamicOffsetCount
+                      VK_NULL_HANDLE);                            //  pDynamicOffsets
+
+
+
+                  u32 ThreadGroup_x = 256u;
+
+                  vkCmdDispatch(command_buffer_collision,
+                      ThreadGroup_x, 1u, 1u);
+              }
+              if (!end_command_buffer(command_buffer_collision))
               {
                   DBG_ASSERT(false);
                   return -1;
@@ -1463,6 +1971,48 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               if (!CHECK_VULKAN_RESULT(vkWaitForFences(device,
                   1u,
                   &fence_compute,
+                  VK_TRUE,
+                  UINT64_MAX)))
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
+          }
+          // SUBMIT
+          {
+              if (!CHECK_VULKAN_RESULT(vkResetFences(device, 1u, &fence_collision)))
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
+
+
+              // submit compute commands
+              VkSubmitInfo const submit_info =
+              {
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                //.pNext = VK_NULL_HANDLE,
+                .waitSemaphoreCount = 0u,
+                .pWaitSemaphores = VK_NULL_HANDLE,
+                .pWaitDstStageMask = VK_NULL_HANDLE,
+                .commandBufferCount = 1u,
+                .pCommandBuffers = &command_buffer_compute,
+                .signalSemaphoreCount = 0u,
+                .pSignalSemaphores = VK_NULL_HANDLE
+              };
+
+              if (!CHECK_VULKAN_RESULT(vkQueueSubmit(queue_compute, 1u, &submit_info,
+                  fence_collision))) // fence to signal when complete
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
+
+
+              // wait for fence to be triggered via vkQueueSubmit (slow!)
+              if (!CHECK_VULKAN_RESULT(vkWaitForFences(device,
+                  1u,
+                  &fence_collision,
                   VK_TRUE,
                   UINT64_MAX)))
               {
@@ -1634,6 +2184,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_command_pool (command_pool_graphics);
 
 
+      release_vulkan_texture (device, texture_particle);
+
       release_vulkan_buffer (device, buffer_graphics_model_input);
       release_vulkan_buffer (device, buffer_graphics_camera);
 
@@ -1656,13 +2208,13 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_command_buffers (1u, command_pool_compute, &command_buffer_compute);
       release_vulkan_command_pool (command_pool_compute);
 
-      release_vulkan_texture (device, texture_particle);
 
       release_vulkan_buffer(device, buffer_pos_x);
       release_vulkan_buffer(device, buffer_pos_y);
       release_vulkan_buffer(device, buffer_vel_x);
       release_vulkan_buffer(device, buffer_vel_y);
       release_vulkan_buffer(device, buffer_info);
+      release_vulkan_buffer(device, buffer_bucket_temp);
 
       release_vulkan_descriptor_sets (device,
         1u, &desc_set_0_compute);
@@ -1672,6 +2224,24 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       release_vulkan_pipeline_layout (device, pipeline_layout_compute);
       release_vulkan_descriptor_set_layouts (device,
         NUM_SETS_COMPUTE, descriptor_set_layouts_compute.data ());
+    }
+    // COMPUTE PIPELINE
+    {
+        release_vulkan_fences(1u, &fence_collision);
+
+        release_vulkan_command_buffers(1u, command_pool_collision, &command_buffer_collision);
+        release_vulkan_command_pool(command_pool_collision);
+
+        release_vulkan_buffer(device, buffer_bucket);
+
+        release_vulkan_descriptor_sets(device,
+            1u, &desc_set_0_collision);
+        release_vulkan_descriptor_pool(device, descriptor_pool_collision);
+
+        release_vulkan_pipeline(device, pipeline_collision);
+        release_vulkan_pipeline_layout(device, pipeline_layout_collision);
+        release_vulkan_descriptor_set_layouts(device,
+            NUM_SETS_COLLISION, descriptor_set_layouts_collision.data());
     }
 
     // CONTEXT

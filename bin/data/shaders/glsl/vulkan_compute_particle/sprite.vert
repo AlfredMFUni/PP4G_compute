@@ -15,10 +15,14 @@ layout (set = 0, binding = 1) uniform model
 layout (set = 0, binding = 2) uniform info_buffer
 {
   uint num_elements;
-  float left;
-  float right;
-  float top;
-  float bottom;
+  float origin_x;
+  float origin_y;
+  float area_width;
+  float area_height;
+  uint temp_buckets_x;
+  uint temp_buckets_y;
+  uint buckets_x;
+  uint buckets_y;
 } UBO_info;
 
 layout (std430, set = 0, binding = 3) buffer pos_x_buffer
@@ -43,7 +47,7 @@ layout (location = 0) out vec2 out_tex_coord;
 
 void main ()
 {
-  vec2 instancePos = vec2(SBO_pos_x.data[gl_InstanceIndex], SBO_pos_y.data[gl_InstanceIndex] );
+  vec2 instancePos = vec2(SBO_pos_x.data[gl_InstanceIndex] + UBO_info.origin_x, SBO_pos_y.data[gl_InstanceIndex] + UBO_info.origin_y);
 
   gl_Position = (UBO_camera.vp_matrix * UBO_model.model_matrix * vec4 ((in_position + instancePos), 0.0, 1.0));
 
