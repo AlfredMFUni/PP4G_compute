@@ -178,15 +178,18 @@ constexpr unsigned int TEMP_BUCKET_SIZE = (NUM_PARTICLES_PER_CORE + 1) * WARP_WI
 
 constexpr float BUCKET_DIM = PARTICLE_SIZE * 1.f;
 constexpr unsigned int NUM_BUCKETS_X = ApproxCeilIntCast(BOUNDS_WIDTH / BUCKET_DIM), NUM_BUCKETS_Y = ApproxCeilIntCast(BOUNDS_HEIGHT / BUCKET_DIM);
-constexpr unsigned int MAX_PARTICLES_PER_BUCKET = 9u;
+constexpr unsigned int MAX_PARTICLES_PER_BUCKET = 8u;
 constexpr unsigned int BUCKET_SIZE = MAX_PARTICLES_PER_BUCKET + 1u;
 
-constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_X = IntCeilDiv(NUM_BUCKETS_X, NUM_TEMP_BUCKETS_X);
-constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_Y = IntCeilDiv(NUM_BUCKETS_Y, NUM_TEMP_BUCKETS_Y);
+constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_X = IntCeilDiv(NUM_BUCKETS_X, NUM_TEMP_BUCKETS_X) + 4u;
+constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_Y = IntCeilDiv(NUM_BUCKETS_Y, NUM_TEMP_BUCKETS_Y) + 1u;
 constexpr float TEMP_BUCKET_DIM_X = BUCKET_DIM * NUM_BUCKETS_PER_TEMP_BUCKET_X, TEMP_BUCKET_DIM_Y = BUCKET_DIM * NUM_BUCKETS_PER_TEMP_BUCKET_Y;
 
+constexpr unsigned int FINAL_BUCKET_COUNT_X = NUM_BUCKETS_PER_TEMP_BUCKET_X * NUM_TEMP_BUCKETS_X;
+constexpr unsigned int FINAL_BUCKET_COUNT_Y = NUM_BUCKETS_PER_TEMP_BUCKET_Y * NUM_TEMP_BUCKETS_Y;
+
 constexpr unsigned int TEMP_BUCKET_BUFFER_SIZE = TEMP_BUCKET_SIZE * NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * DATA_SIZE;
-constexpr unsigned int BUCKET_BUFFER_SIZE = BUCKET_SIZE * NUM_BUCKETS_X * NUM_BUCKETS_Y * DATA_SIZE;
+constexpr unsigned int BUCKET_BUFFER_SIZE = BUCKET_SIZE * FINAL_BUCKET_COUNT_X * FINAL_BUCKET_COUNT_Y * DATA_SIZE;
 
 
 
@@ -197,6 +200,7 @@ struct compute_UBO_info_buffer
     u32 bucketNums[4u];
     f32 bucketDims[3u];
     f32 Particle_radius;
+    u32 bucketSlots[2u];
 };
 
 struct compute_push_constants
@@ -494,7 +498,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               return -1;
           }
           if (!create_vulkan_buffer(physical_device, device,
-              NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * TEMP_BUCKET_SIZE * DATA_SIZE,
+              TEMP_BUCKET_BUFFER_SIZE,
               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
               VK_SHARING_MODE_EXCLUSIVE,
               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
@@ -734,32 +738,19 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               f32_data[4u] = static_cast<float>(BOUNDS_HEIGHT);
               u32_data[5u] = NUM_TEMP_BUCKETS_X;
               u32_data[6u] = NUM_TEMP_BUCKETS_Y;
-              u32_data[7u] = NUM_BUCKETS_X;
-              u32_data[8u] = NUM_BUCKETS_Y;
+              u32_data[7u] = FINAL_BUCKET_COUNT_X;
+              u32_data[8u] = FINAL_BUCKET_COUNT_Y;
               f32_data[9u] = TEMP_BUCKET_DIM_X;
               f32_data[10u] = TEMP_BUCKET_DIM_Y;
               f32_data[11u] = BUCKET_DIM;
               f32_data[12u] = PARTICLE_SIZE * 0.5f;
+              u32_data[13u] = NUM_PARTICLES_PER_CORE;
+              u32_data[14u] = MAX_PARTICLES_PER_BUCKET;
           }))
       {
           DBG_ASSERT(false);
           return -1;
       }      
-      
-      if (!map_and_unmap_memory(device,
-          buffer_bucket_temp.memory, [](void* mapped_memory)
-          {
-              constexpr unsigned int BUFFER_SIZE = NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * NUM_THREAD_GROUPS_COMPUTE_PARTICLES * WARP_WIDTH * NUM_PARTICLES_PER_CORE;
-              u32* data = (u32*)mapped_memory;
-              for (int i(0); i < BUFFER_SIZE; ++i)
-              {
-                  data[i] = 0u;
-              }
-          }))
-      {
-          DBG_ASSERT(false);
-          return -1;
-      }
   }
 
   // COLLISION PIPELINE
@@ -943,7 +934,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       {
 
           if (!create_vulkan_buffer(physical_device, device,
-              NUM_TEMP_BUCKETS_X * NUM_TEMP_BUCKETS_Y * TEMP_BUCKET_SIZE * DATA_SIZE,
+              BUCKET_BUFFER_SIZE,
               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
               VK_SHARING_MODE_EXCLUSIVE,
               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
@@ -1924,10 +1915,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
 
 
-                  u32 ThreadGroup_x = 256u;
-
                   vkCmdDispatch(command_buffer_collision,
-                      ThreadGroup_x, 1u, 1u);
+                      NUM_TEMP_BUCKETS_X, NUM_TEMP_BUCKETS_Y, 1u);
               }
               if (!end_command_buffer(command_buffer_collision))
               {

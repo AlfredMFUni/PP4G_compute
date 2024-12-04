@@ -1,7 +1,7 @@
 // compute shader
 #version 430
 
-layout (local_size_x = 256) in;
+layout (local_size_x = 16, local_size_y = 12) in;
 
 layout (std430, set = 0, binding = 0) buffer pos_x_buffer
 {
@@ -38,6 +38,8 @@ layout (set = 0, binding = 4) uniform info_buffer
   float temp_bucket_dim_y;
   float bucket_dim;
   float particle_radius;
+  uint particles_per_core;
+  uint particles_per_bucket;
 } UBO_info;
 
 layout (std430, set = 0, binding = 5) readonly buffer temp_bucket_buffer
@@ -52,14 +54,45 @@ layout (std430, set = 0, binding = 6) buffer bucket_buffer
 
 void main ()
 {
-  const uint bucket_size = 5 * 32 * 32;
+  const uint bucket_size = (UBO_info.particles_per_core + 1) * 32 * 32;
+  const uint work_group_size = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
   // [temp_bucket_x_high][temp_bucket_y_low][gl_WorkGroupID.x][InWarpIndex][0]
-  //currindex = SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id];
-  //int temp_bucket_x_index; int temp_bucket_y_index;
-  //mod((gl_GlobalInvocationID.x * UBO_info.bucket_dim) / UBO_info.temp_bucket_dim_x, temp_bucket_x_index);
-  //mod((gl_GlobalInvocationID.y * UBO_info.bucket_dim) / UBO_info.temp_bucket_dim_x, temp_bucket_y_index);
-  //for()
-  //{
-  //  
-  //}
+
+  
+  const uint temp_bucket_index = (gl_WorkGroupID.x * bucket_size * UBO_info.temp_bucket_y) + (gl_WorkGroupID.y * bucket_size);
+  const uint bucket_index = (gl_WorkGroupID.y * gl_NumWorkGroups.x * work_group_size) + (gl_WorkGroupID.x * work_group_size) + gl_LocalInvocationIndex * (UBO_info.particles_per_bucket + 1) * 4;
+
+  for (uint i = 0; i < (UBO_info.particles_per_bucket + 1) * 4; ++i)
+  {
+    SBO_bucket.data[bucket_index + i] = 0;
+  }
+
+  const float low_bound_x = gl_LocalInvocationID.x - (0.5 * UBO_info.bucket_dim);
+  const float low_bound_y = gl_LocalInvocationID.y - (0.5 * UBO_info.bucket_dim);
+
+  const vec4 x_bounds = { low_bound_x, low_bound_x + (1 * UBO_info.bucket_dim), low_bound_x + (2 * UBO_info.bucket_dim), low_bound_x + (3 * UBO_info.bucket_dim) };
+  const vec4 y_bounds = { low_bound_y, low_bound_y + (1 * UBO_info.bucket_dim), low_bound_y + (2 * UBO_info.bucket_dim), low_bound_y + (3 * UBO_info.bucket_dim) };
+
+  for(uint run_base_index = temp_bucket_index; run_base_index < temp_bucket_index + bucket_size; run_base_index += UBO_info.particles_per_bucket + 1)
+  {
+    for (uint run_index = 0; run_index < SBO_temp.data[run_base_index]; ++run_index)
+    {
+      const uint particle_index = SBO_temp.data[run_base_index + run_index];
+      const float particle_pos_x = SBO_pos_x.data[particle_index];
+      const float particle_pos_y = SBO_pos_y.data[particle_index];
+      for (uint y = 0; y < 2; ++y)
+      {
+        for (uint x = 0; x < 2; ++x)
+        {
+          const uint local_bucket_index = ((y * 2) + x) * (UBO_info.particles_per_bucket + 1); 
+          const uint in_bucket_index = SBO_bucket.data[bucket_index + local_bucket_index];
+          const uint take_particle = int((particle_pos_x > x_bounds[x] && particle_pos_x <= x_bounds[x + 2]) && (particle_pos_y > y_bounds[y] && particle_pos_y <= y_bounds[y + 2]) && in_bucket_index < UBO_info.particles_per_bucket);
+          SBO_bucket.data[bucket_index + local_bucket_index + in_bucket_index + 1] += (take_particle * particle_index); 
+          SBO_bucket.data[bucket_index + local_bucket_index] += take_particle; 
+        }
+      }
+    }
+  }
+
+
 }

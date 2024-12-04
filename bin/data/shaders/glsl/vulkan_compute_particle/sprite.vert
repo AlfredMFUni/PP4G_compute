@@ -19,10 +19,16 @@ layout (set = 0, binding = 2) uniform info_buffer
   float origin_y;
   float area_width;
   float area_height;
-  uint temp_buckets_x;
-  uint temp_buckets_y;
+  uint temp_bucket_x;
+  uint temp_bucket_y;
   uint buckets_x;
   uint buckets_y;
+  float temp_bucket_dim_x;
+  float temp_bucket_dim_y;
+  float bucket_dim;
+  float particle_radius;
+  uint particles_per_core;
+  uint particles_per_bucket;
 } UBO_info;
 
 layout (std430, set = 0, binding = 3) buffer pos_x_buffer
