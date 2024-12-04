@@ -116,10 +116,10 @@ void main ()
         const vec2 new_vec_lhs = vector_lhs_rejection + vector_rhs_projection;
         const vec2 new_vec_rhs = vector_rhs_rejection + vector_lhs_projection;
         
-        SBO_vel_x.data[rhs_index] = new_vec_lhs.x;
-        SBO_vel_y.data[rhs_index] = new_vec_lhs.y;
-        SBO_vel_x.data[lhs_index] = new_vec_rhs.x;
-        SBO_vel_y.data[lhs_index] = new_vec_rhs.y;
+        SBO_vel_x.data[lhs_index] = new_vec_lhs.x;
+        SBO_vel_y.data[lhs_index] = new_vec_lhs.y;
+        SBO_vel_x.data[rhs_index] = new_vec_rhs.x;
+        SBO_vel_y.data[rhs_index] = new_vec_rhs.y;
       }
     }
   }

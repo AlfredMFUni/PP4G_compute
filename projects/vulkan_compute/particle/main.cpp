@@ -743,7 +743,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               f32_data[9u] = TEMP_BUCKET_DIM_X;
               f32_data[10u] = TEMP_BUCKET_DIM_Y;
               f32_data[11u] = BUCKET_DIM;
-              f32_data[12u] = PARTICLE_SIZE * 0.5f;
+              f32_data[12u] = PARTICLE_SIZE;
               u32_data[13u] = NUM_PARTICLES_PER_CORE;
               u32_data[14u] = MAX_PARTICLES_PER_BUCKET;
           }))
