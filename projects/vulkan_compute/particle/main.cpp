@@ -149,7 +149,6 @@
 
 constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
 constexpr char const* COMPILED_COMPUTE_SHADER_PATH_PARTICLE = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_particle.comp.spv";
-constexpr char const* COMPILED_COMPUTE_SHADER_PATH_COLLISION = "data/shaders/glsl/vulkan_compute_particle/vulkan_compute_collision.comp.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle/sprite.vert.spv";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
@@ -157,7 +156,7 @@ constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 constexpr unsigned int NUM_PARTICLES = 1u << 12;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
 
-constexpr float left_bound = -120, right_bound = 121, top_bound = 67.f, bottom_bound = -67.f;
+constexpr float origin_x = -120, origin_y = -67.f, bound_width = 242, bound_height = 134.f;
 constexpr float MaxParticleSpeed = 1.f / (1u << 6u);
 constexpr float particleScale = 1.f / (1u << 0u);
 
@@ -600,8 +599,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   {
       std::random_device rd;
       std::ranlux24_base re(rd()); // std::default_engine (std::mersenne_twister_engine) uses 5K bytes on the stack!!!
-      std::uniform_real_distribution <f32> X_Pos_Dist(left_bound, right_bound);
-      std::uniform_real_distribution <f32> Y_Pos_Dist(bottom_bound, top_bound);
+      std::uniform_real_distribution <f32> X_Pos_Dist(0, bound_width);
+      std::uniform_real_distribution <f32> Y_Pos_Dist(0, bound_height);
       std::uniform_real_distribution <f32> Vel_Dist(-MaxParticleSpeed, MaxParticleSpeed);
 
       if (!map_and_unmap_memory(device,
@@ -664,10 +663,10 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               u32* num_elements = (u32*)mapped_memory;
               (*num_elements) = NUM_PARTICLES;
               f32* bounds = (f32*)(num_elements + 1);
-              bounds[0] = left_bound;
-              bounds[1] = right_bound;
-              bounds[2] = top_bound;
-              bounds[3] = bottom_bound;
+              bounds[0] = origin_x;
+              bounds[1] = origin_y;
+              bounds[2] = bound_width;
+              bounds[3] = bound_height;
           }))
       {
           DBG_ASSERT(false);

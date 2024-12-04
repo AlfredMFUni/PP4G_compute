@@ -26,10 +26,10 @@ layout (std430, set = 0, binding = 3) buffer vel_y_buffer
 layout (set = 0, binding = 4) uniform info_buffer
 {
   uint num_elements;
-  float left;
-  float right;
-  float top;
-  float bottom;
+  float origin_x;
+  float origin_y;
+  float bound_width;
+  float bound_height;
 } UBO_info;
 
 layout (push_constant) uniform my_push_constants
@@ -42,17 +42,16 @@ void main ()
   const uint i = uint (gl_GlobalInvocationID.x); // get thread index
 
   if (i >= UBO_info.num_elements) return;
-
   
   SBO_pos_x.data[i] = SBO_pos_x.data[i] + (SBO_vel_x.data[i] * push_constants.deltatime);
   SBO_pos_y.data[i] = SBO_pos_y.data[i] + (SBO_vel_y.data[i] * push_constants.deltatime);
 
-  const int inBounds_x = int(SBO_pos_x.data[i] < UBO_info.left || SBO_pos_x.data[i] > UBO_info.right) * -2 + 1;
-  const int inBounds_y = int(SBO_pos_y.data[i] < UBO_info.bottom || SBO_pos_y.data[i] > UBO_info.top) * -2 + 1;
+  const int inBounds_x = int(SBO_pos_x.data[i] < 0.0 || SBO_pos_x.data[i] > UBO_info.bound_width) * -2 + 1;
+  const int inBounds_y = int(SBO_pos_y.data[i] < 0.0 || SBO_pos_y.data[i] > UBO_info.bound_height) * -2 + 1;
 
   SBO_vel_x.data[i] = SBO_vel_x.data[i] * inBounds_x;
   SBO_vel_y.data[i] = SBO_vel_y.data[i] * inBounds_y;
 
-  SBO_pos_x.data[i] = clamp(SBO_pos_x.data[i], UBO_info.left, UBO_info.right);
-  SBO_pos_y.data[i] = clamp(SBO_pos_y.data[i], UBO_info.bottom, UBO_info.top);
+  SBO_pos_x.data[i] = clamp(SBO_pos_x.data[i], 0.0, UBO_info.bound_width);
+  SBO_pos_y.data[i] = clamp(SBO_pos_y.data[i], 0.0, UBO_info.bound_height);
 }
