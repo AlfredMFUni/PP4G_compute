@@ -1,6 +1,8 @@
 // compute shader
 #version 430
 
+#define EPSILON 1e-6
+
 layout (local_size_x = 16, local_size_y = 12) in;
 
 layout (std430, set = 0, binding = 0) buffer pos_x_buffer
@@ -94,5 +96,31 @@ void main ()
     }
   }
 
+  for (uint local_bucket_index = 0; local_bucket_index < 4; ++local_bucket_index)
+  {
+    for (uint lhs_index = 0; lhs_index < SBO_bucket.data[bucket_index + local_bucket_index]; ++lhs_index)
+    {
+      for (uint rhs_index = (lhs_index + 1); rhs_index < SBO_bucket.data[bucket_index + local_bucket_index]; ++rhs_index)
+      {
+        const vec2 vector_lhs = vec2(SBO_vel_x.data[lhs_index], SBO_vel_y.data[lhs_index]);
+        const vec2 vector_rhs = vec2(SBO_vel_x.data[rhs_index], SBO_vel_y.data[rhs_index]);
 
+        const vec2 difference_vector = normalize(vec2(SBO_vel_x.data[lhs_index] - SBO_vel_x.data[rhs_index], SBO_vel_y.data[lhs_index] - SBO_vel_y.data[rhs_index]));
+
+        const vec2 vector_lhs_projection = dot(vector_lhs, difference_vector) * difference_vector;
+        const vec2 vector_rhs_projection = dot(vector_rhs, difference_vector) * difference_vector;
+        
+        const vec2 vector_lhs_rejection = (vector_lhs - vector_lhs_projection);
+        const vec2 vector_rhs_rejection = (vector_rhs - vector_rhs_projection);
+
+        const vec2 new_vec_lhs = vector_lhs_rejection + vector_rhs_projection;
+        const vec2 new_vec_rhs = vector_rhs_rejection + vector_lhs_projection;
+        
+        SBO_vel_x.data[rhs_index] = new_vec_lhs.x;
+        SBO_vel_y.data[rhs_index] = new_vec_lhs.y;
+        SBO_vel_x.data[lhs_index] = new_vec_rhs.x;
+        SBO_vel_y.data[lhs_index] = new_vec_rhs.y;
+      }
+    }
+  }
 }
