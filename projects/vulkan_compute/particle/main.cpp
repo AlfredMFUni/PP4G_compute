@@ -173,7 +173,7 @@ constexpr float PARTICLE_SCALE = 1.f / (1u << 0u);
 constexpr float DRAW_SCALING = 5.4f;
 constexpr float PARTICLE_SIZE = PARTICLE_TEXTURE_SIZE * PARTICLE_SCALE / DRAW_SCALING;
 
-constexpr unsigned int NUM_TEMP_BUCKETS_X = 6u, NUM_TEMP_BUCKETS_Y = 4u;
+constexpr unsigned int NUM_TEMP_BUCKETS_X = 21u, NUM_TEMP_BUCKETS_Y = 6u;
 constexpr unsigned int TEMP_BUCKET_SIZE = (NUM_PARTICLES_PER_CORE + 1) * WARP_WIDTH * NUM_THREAD_GROUPS_COMPUTE_PARTICLES;
 
 constexpr float BUCKET_DIM = PARTICLE_SIZE * 1.f;
@@ -181,8 +181,8 @@ constexpr unsigned int NUM_BUCKETS_X = ApproxCeilIntCast(BOUNDS_WIDTH / BUCKET_D
 constexpr unsigned int MAX_PARTICLES_PER_BUCKET = 8u;
 constexpr unsigned int BUCKET_SIZE = MAX_PARTICLES_PER_BUCKET + 1u;
 
-constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_X = IntCeilDiv(NUM_BUCKETS_X, NUM_TEMP_BUCKETS_X) + 4u;
-constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_Y = IntCeilDiv(NUM_BUCKETS_Y, NUM_TEMP_BUCKETS_Y) + 1u;
+constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_X = IntCeilDiv(NUM_BUCKETS_X, NUM_TEMP_BUCKETS_X);
+constexpr unsigned int NUM_BUCKETS_PER_TEMP_BUCKET_Y = IntCeilDiv(NUM_BUCKETS_Y, NUM_TEMP_BUCKETS_Y);
 constexpr float TEMP_BUCKET_DIM_X = BUCKET_DIM * NUM_BUCKETS_PER_TEMP_BUCKET_X, TEMP_BUCKET_DIM_Y = BUCKET_DIM * NUM_BUCKETS_PER_TEMP_BUCKET_Y;
 
 constexpr unsigned int FINAL_BUCKET_COUNT_X = NUM_BUCKETS_PER_TEMP_BUCKET_X * NUM_TEMP_BUCKETS_X;
@@ -743,7 +743,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               f32_data[9u] = TEMP_BUCKET_DIM_X;
               f32_data[10u] = TEMP_BUCKET_DIM_Y;
               f32_data[11u] = BUCKET_DIM;
-              f32_data[12u] = PARTICLE_SIZE;
+              f32_data[12u] = PARTICLE_SIZE * 5.f;
               u32_data[13u] = NUM_PARTICLES_PER_CORE;
               u32_data[14u] = MAX_PARTICLES_PER_BUCKET;
           }))
