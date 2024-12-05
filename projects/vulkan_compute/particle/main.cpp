@@ -696,6 +696,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   constexpr u32 NUM_SETS_GRAPHICS = 2u;
 
+  constexpr u32 NUM_SEMAPHORE_GRAPHICS = 2u;
+
   constexpr u32 NUM_RESOURCES_GRAPHICS_SET_0 = 5u;
   constexpr u32 BINDING_ID_SET_0_UBO_CAMERA = 0u;
   constexpr u32 BINDING_ID_SET_0_UBO_MODEL = 1u;
@@ -724,7 +726,9 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   vulkan_mesh mesh_sprite;
 
-  VkSemaphore swapchain_image_available_semaphore = VK_NULL_HANDLE;
+  VkSemaphore render_queue_semaphores[NUM_SEMAPHORE_GRAPHICS] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+  VkSemaphore* swapchain_image_available_semaphore = &render_queue_semaphores[0];
+  VkSemaphore* compute_finished_semaphore = &render_queue_semaphores[1];
   VkFence fence_submit_graphics = VK_NULL_HANDLE;
 
 
@@ -1354,7 +1358,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   // create graphics sync objects
   // at least one per submit (can be reused if in loop)
   {
-    if (!create_vulkan_semaphores (1u, &swapchain_image_available_semaphore))
+    if (!create_vulkan_semaphores (2u, render_queue_semaphores))
     {
       DBG_ASSERT (false);
       return -1;
@@ -1446,28 +1450,28 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
                 .pWaitDstStageMask = VK_NULL_HANDLE,
                 .commandBufferCount = 1u,
                 .pCommandBuffers = &command_buffer_compute,
-                .signalSemaphoreCount = 0u,
-                .pSignalSemaphores = VK_NULL_HANDLE
+                .signalSemaphoreCount = 1u,
+                .pSignalSemaphores = compute_finished_semaphore
               };
 
-              if (!CHECK_VULKAN_RESULT(vkQueueSubmit(queue_compute, 1u, &submit_info,
-                  fence_compute))) // fence to signal when complete
-              {
-                  DBG_ASSERT(false);
-                  return -1;
-              }
+              //if (!CHECK_VULKAN_RESULT(vkQueueSubmit(queue_compute, 1u, &submit_info,
+              //    fence_compute))) // fence to signal when complete
+              //{
+              //    DBG_ASSERT(false);
+              //    return -1;
+              //}
 
 
-              // wait for fence to be triggered via vkQueueSubmit (slow!)
-              if (!CHECK_VULKAN_RESULT(vkWaitForFences(device,
-                  1u,
-                  &fence_compute,
-                  VK_TRUE,
-                  UINT64_MAX)))
-              {
-                  DBG_ASSERT(false);
-                  return -1;
-              }
+              //// wait for fence to be triggered via vkQueueSubmit (slow!)
+              //if (!CHECK_VULKAN_RESULT(vkWaitForFences(device,
+              //    1u,
+              //    &fence_compute,
+              //    VK_TRUE,
+              //    UINT64_MAX)))
+              //{
+              //    DBG_ASSERT(false);
+              //    return -1;
+              //}
           }
 
 
@@ -1477,7 +1481,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     // RENDER
     {
       // this semaphore will be triggered when a swapchain image is available to be rendered to
-      if (!acquire_next_swapchain_image (swapchain_image_available_semaphore))
+      if (!acquire_next_swapchain_image (*swapchain_image_available_semaphore))
       {
         DBG_ASSERT (false);
         return -1;
@@ -1578,8 +1582,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         {
           .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
           //.pNext = VK_NULL_HANDLE,
-          .waitSemaphoreCount = 1u,
-          .pWaitSemaphores = &swapchain_image_available_semaphore, // wait for these semaphores to be signalled before submitting command buffers
+          .waitSemaphoreCount = 2u,
+          .pWaitSemaphores = render_queue_semaphores, // wait for these semaphores to be signalled before submitting command buffers
           .pWaitDstStageMask = &wait_stage_mask,
           .commandBufferCount = 1u,
           .pCommandBuffers = &command_buffer_graphics,
@@ -1625,7 +1629,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     // GRAPHICS PIPELINE
     {
       release_vulkan_fences (1u, &fence_submit_graphics);
-      release_vulkan_semaphores (1u, &swapchain_image_available_semaphore);
+      release_vulkan_semaphores (2u, render_queue_semaphores);
 
       release_vulkan_mesh (device, mesh_sprite);
 
