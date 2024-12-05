@@ -1,0 +1,80 @@
+// compute shader
+#version 430
+
+#define EPSILON 1e-6
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+layout (std430, set = 0, binding = 0) buffer pos_x_buffer
+{
+  float data [];
+} SBO_pos_x;
+
+layout (std430, set = 0, binding = 1) buffer pos_y_buffer
+{
+  float data [];
+} SBO_pos_y;
+
+layout (set = 0, binding = 2) uniform info_buffer
+{
+  uint num_elements;
+  float origin_x;
+  float origin_y;
+  float area_width;
+  float area_height;
+  uint temp_bucket_x;
+  uint temp_bucket_y;
+  uint buckets_x;
+  uint buckets_y;
+  float temp_bucket_dim_x;
+  float temp_bucket_dim_y;
+  float bucket_dim;
+  float particle_radius;
+  uint particles_per_core;
+  uint particles_per_bucket;
+} UBO_info;
+
+layout (std430, set = 0, binding = 3) readonly buffer temp_bucket_buffer
+{
+  uint data [];
+} SBO_temp;
+
+layout (std430, set = 0, binding = 4) buffer bucket_buffer
+{
+  uint data [];
+} SBO_bucket;
+
+void main ()
+{
+  const uint bucket_size = (UBO_info.particles_per_core + 1) * 32 * 32;
+  const uint work_group_size = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+  const uint temp_bucket_index = (gl_WorkGroupID.x * bucket_size * UBO_info.temp_bucket_y) + (gl_WorkGroupID.y * bucket_size);
+  const uint bucket_index = gl_GlobalInvocationID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x + gl_GlobalInvocationID.x;
+
+  for (uint i = 0; i < (UBO_info.particles_per_bucket + 1); ++i)
+  {
+    SBO_bucket.data[bucket_index + i] = 0;
+  }
+
+  const float low_bound_x = (gl_GlobalInvocationID.x - 0.5) * UBO_info.bucket_dim;
+  const float low_bound_y = (gl_GlobalInvocationID.y - 0.5) * UBO_info.bucket_dim;
+
+  const vec2 x_bounds = { low_bound_x, low_bound_x + (UBO_info.bucket_dim) };
+  const vec2 y_bounds = { low_bound_y, low_bound_y + (UBO_info.bucket_dim) };
+
+
+  for(uint run_base_index = temp_bucket_index; run_base_index < temp_bucket_index + bucket_size; run_base_index += UBO_info.particles_per_bucket + 1)
+  {
+    for (uint run_index = 0; run_index < SBO_temp.data[run_base_index]; ++run_index)
+    {
+      const uint particle_index = SBO_temp.data[run_base_index + run_index];
+      const float particle_pos_x = SBO_pos_x.data[particle_index];
+      const float particle_pos_y = SBO_pos_y.data[particle_index];
+      
+      const uint in_bucket_index = SBO_bucket.data[bucket_index];
+      const uint take_particle = int((particle_pos_x > x_bounds[0] && particle_pos_x <= x_bounds[1]) && (particle_pos_y > y_bounds[0] && particle_pos_y <= y_bounds[1]) && in_bucket_index < UBO_info.particles_per_bucket);
+      SBO_bucket.data[bucket_index + in_bucket_index + 1] += (take_particle * particle_index); 
+      SBO_bucket.data[bucket_index] += take_particle;
+    }
+  }
+}

@@ -3,7 +3,7 @@
 
 #define EPSILON 1e-6
 
-layout (local_size_x = 8, local_size_y = 16) in;
+layout (local_size_x = 16, local_size_y = 12) in;
 
 layout (std430, set = 0, binding = 0) buffer pos_x_buffer
 {
@@ -58,15 +58,60 @@ void main ()
 {
   const uint bucket_size = (UBO_info.particles_per_core + 1) * 32 * 32;
   const uint work_group_size = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
-  const uint bucket_index = gl_GlobalInvocationID.y * gl_WorkGroupSize.x * gl_NumWorkGroups.x + (gl_GlobalInvocationID.x * 4);
+  const uint temp_bucket_index = (gl_WorkGroupID.x * bucket_size * UBO_info.temp_bucket_y) + (gl_WorkGroupID.y * bucket_size);
+  const uint bucket_index = (gl_WorkGroupID.y * gl_NumWorkGroups.x * work_group_size) + (gl_WorkGroupID.x * work_group_size) + gl_LocalInvocationIndex * (UBO_info.particles_per_bucket + 1) * 4;
 
   const float sq_min_dist = UBO_info.particle_radius * UBO_info.particle_radius * 4;
+
+  for (uint i = 0; i < (UBO_info.particles_per_bucket + 1) * 4; ++i)
+  {
+    SBO_bucket.data[bucket_index + i] = 0;
+  }
 
   const float low_bound_x = ((gl_LocalInvocationID.x - 0.5 + (gl_WorkGroupSize.x * gl_WorkGroupID.x)) * UBO_info.bucket_dim);
   const float low_bound_y = ((gl_LocalInvocationID.y - 0.5 + (gl_WorkGroupSize.y * gl_WorkGroupID.y)) * UBO_info.bucket_dim);
 
-  const vec2 x_bounds = { low_bound_x, low_bound_x + (UBO_info.bucket_dim) };
-  const vec2 y_bounds = { low_bound_y, low_bound_y + (UBO_info.bucket_dim) };
+  const vec4 x_bounds = { low_bound_x, low_bound_x + (1 * UBO_info.bucket_dim), low_bound_x + (2 * UBO_info.bucket_dim), low_bound_x + (3 * UBO_info.bucket_dim) };
+  const vec4 y_bounds = { low_bound_y, low_bound_y + (1 * UBO_info.bucket_dim), low_bound_y + (2 * UBO_info.bucket_dim), low_bound_y + (3 * UBO_info.bucket_dim) };
+
+  for(uint run_base_index = temp_bucket_index; run_base_index < temp_bucket_index + bucket_size; run_base_index += UBO_info.particles_per_bucket + 1)
+  {
+    for (uint run_index = 0; run_index < SBO_temp.data[run_base_index]; ++run_index)
+    {
+      const uint particle_index = SBO_temp.data[run_base_index + run_index];
+      const float particle_pos_x = SBO_pos_x.data[particle_index];
+      const float particle_pos_y = SBO_pos_y.data[particle_index];
+        
+      {
+        const uint local_bucket_index = (0); 
+        const uint in_bucket_index = SBO_bucket.data[bucket_index + local_bucket_index];
+        const uint take_particle = int((particle_pos_x > x_bounds[0] && particle_pos_x <= x_bounds[2]) && (particle_pos_y > y_bounds[0] && particle_pos_y <= y_bounds[2]) && in_bucket_index < UBO_info.particles_per_bucket);
+        SBO_bucket.data[bucket_index + local_bucket_index + in_bucket_index + 1] += (take_particle * particle_index); 
+        SBO_bucket.data[bucket_index + local_bucket_index] += take_particle; 
+      } 
+      { 
+        const uint local_bucket_index = (1) * (UBO_info.particles_per_bucket + 1); 
+        const uint in_bucket_index = SBO_bucket.data[bucket_index + local_bucket_index];
+        const uint take_particle = int((particle_pos_x > x_bounds[1] && particle_pos_x <= x_bounds[3]) && (particle_pos_y > y_bounds[0] && particle_pos_y <= y_bounds[2]) && in_bucket_index < UBO_info.particles_per_bucket);
+        SBO_bucket.data[bucket_index + local_bucket_index + in_bucket_index + 1] += (take_particle * particle_index); 
+        SBO_bucket.data[bucket_index + local_bucket_index] += take_particle; 
+      } 
+      {
+        const uint local_bucket_index = (2) * (UBO_info.particles_per_bucket + 1); 
+        const uint in_bucket_index = SBO_bucket.data[bucket_index + local_bucket_index];
+        const uint take_particle = int((particle_pos_x > x_bounds[0] && particle_pos_x <= x_bounds[2]) && (particle_pos_y > y_bounds[1] && particle_pos_y <= y_bounds[3]) && in_bucket_index < UBO_info.particles_per_bucket);
+        SBO_bucket.data[bucket_index + local_bucket_index + in_bucket_index + 1] += (take_particle * particle_index); 
+        SBO_bucket.data[bucket_index + local_bucket_index] += take_particle; 
+      }
+      {
+        const uint local_bucket_index = (3) * (UBO_info.particles_per_bucket + 1); 
+        const uint in_bucket_index = SBO_bucket.data[bucket_index + local_bucket_index];
+        const uint take_particle = int((particle_pos_x > x_bounds[1] && particle_pos_x <= x_bounds[3]) && (particle_pos_y > y_bounds[1] && particle_pos_y <= y_bounds[3]) && in_bucket_index < UBO_info.particles_per_bucket);
+        SBO_bucket.data[bucket_index + local_bucket_index + in_bucket_index + 1] += (take_particle * particle_index); 
+        SBO_bucket.data[bucket_index + local_bucket_index] += take_particle; 
+      }
+    }
+  }
 
   for (uint local_bucket_index = 0; local_bucket_index < 4; ++local_bucket_index)
   {

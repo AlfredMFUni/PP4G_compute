@@ -1,0 +1,118 @@
+// compute shader
+#version 430
+
+layout (local_size_x = 256) in;
+
+layout (std430, set = 0, binding = 0) buffer pos_x_buffer
+{
+  float data [];
+} SBO_pos_x;
+
+layout (std430, set = 0, binding = 1) buffer pos_y_buffer
+{
+  float data [];
+} SBO_pos_y;
+
+layout (std430, set = 0, binding = 2) buffer vel_x_buffer
+{
+  float data [];
+} SBO_vel_x;
+
+layout (std430, set = 0, binding = 3) buffer vel_y_buffer
+{
+  float data [];
+} SBO_vel_y;
+
+layout (set = 0, binding = 4) uniform info_buffer
+{
+  uint num_elements;
+  float origin_x;
+  float origin_y;
+  float area_width;
+  float area_height;
+  uint temp_bucket_x;
+  uint temp_bucket_y;
+  uint bucket_x;
+  uint bucket_y;
+  float temp_bucket_dim_x;
+  float temp_bucket_dim_y;
+  float bucket_dim;
+  float particle_radius;
+  uint particles_per_core;
+  uint particles_per_bucket;
+} UBO_info;
+
+
+layout (std430, set = 0, binding = 5) buffer temp_bucket_buffer
+{
+  uint data [];
+} SBO_temp_bucket;
+
+layout (push_constant) uniform my_push_constants
+{
+  float deltatime;
+} push_constants;
+
+void main ()
+{
+  const uint i = uint (gl_GlobalInvocationID.x); // get thread index
+
+  if (i >= UBO_info.num_elements) return;
+  
+  SBO_pos_x.data[i] = SBO_pos_x.data[i] + (SBO_vel_x.data[i] * push_constants.deltatime);
+  SBO_pos_y.data[i] = SBO_pos_y.data[i] + (SBO_vel_y.data[i] * push_constants.deltatime);
+
+  const int inBounds_x = int(SBO_pos_x.data[i] < 0.f || SBO_pos_x.data[i] > UBO_info.area_width) * -2 + 1;  // int(true) * -2 + 1 = -1
+  const int inBounds_y = int(SBO_pos_y.data[i] < 0.f || SBO_pos_y.data[i] > UBO_info.area_height) * -2 + 1; // int(false) * -2 + 1 = 1
+
+  SBO_vel_x.data[i] = SBO_vel_x.data[i] * inBounds_x;
+  SBO_vel_y.data[i] = SBO_vel_y.data[i] * inBounds_y;
+
+  SBO_pos_x.data[i] = clamp(SBO_pos_x.data[i], 0.f, UBO_info.area_width);
+  SBO_pos_y.data[i] = clamp(SBO_pos_y.data[i], 0.f, UBO_info.area_height);
+
+  const uint InWarpIndex = int(mod(gl_LocalInvocationID.x, 32));
+
+  int temp_bucket_x_low; int temp_bucket_x_high; int temp_bucket_y_low; int temp_bucket_y_high;
+  mod((SBO_pos_x.data[i] - UBO_info.particle_radius) / UBO_info.temp_bucket_dim_x, temp_bucket_x_low);
+  mod((SBO_pos_x.data[i] + UBO_info.particle_radius) / UBO_info.temp_bucket_dim_x, temp_bucket_x_high);
+  mod((SBO_pos_y.data[i] - UBO_info.particle_radius) / UBO_info.temp_bucket_dim_y, temp_bucket_y_low);
+  mod((SBO_pos_y.data[i] + UBO_info.particle_radius) / UBO_info.temp_bucket_dim_y, temp_bucket_y_high);
+
+  const uint core_id = (gl_WorkGroupID.x * (UBO_info.particles_per_core + 1) * 32) + (InWarpIndex * (UBO_info.particles_per_core + 1));
+  const uint bucket_size = (UBO_info.particles_per_core + 1) * gl_NumWorkGroups.x * 32;
+  
+
+  
+  
+  for (uint index = 0; index < 30; ++index)
+  {
+     SBO_temp_bucket.data[(i*30) + index] = 0;
+  }
+
+  uint currindex = SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id];
+  {
+	const int save_value = int(currindex <= UBO_info.particles_per_core);
+    SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id + currindex + 1] += (i * save_value);
+    SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id] += save_value;
+  }
+ 
+  currindex = SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id];
+  {
+	const int save_value = int((temp_bucket_x_low != temp_bucket_x_high) && (currindex <= UBO_info.particles_per_core));
+	SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id + currindex + 1] += (i * save_value);
+	SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id] += save_value;
+  }  
+  currindex = SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_high * bucket_size) + core_id];
+  {
+    const int save_value = int((temp_bucket_y_low != temp_bucket_y_high) && (currindex <= UBO_info.particles_per_core));
+	SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_high * bucket_size) + core_id + currindex + 1] += (i * save_value);
+	SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_high * bucket_size) + core_id] += save_value;
+  } 
+  currindex = SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_high * bucket_size) + core_id];
+  {
+    const int save_value = int((temp_bucket_x_low != temp_bucket_x_high) && (temp_bucket_y_low != temp_bucket_y_high) && (currindex <= UBO_info.particles_per_core));
+	SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_high * bucket_size) + core_id + currindex + 1] += (i * save_value);
+	SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_high * bucket_size) + core_id] += save_value;
+  }
+}
