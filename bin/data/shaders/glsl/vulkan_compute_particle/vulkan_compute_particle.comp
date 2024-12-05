@@ -82,6 +82,9 @@ void main ()
   const uint core_id = (gl_WorkGroupID.x * (UBO_info.particles_per_core + 1) * 32) + (InWarpIndex * (UBO_info.particles_per_core + 1));
   const uint bucket_size = (UBO_info.particles_per_core + 1) * gl_NumWorkGroups.x * 32;
   
+
+  
+  
   for (uint index = 0; index < 30; ++index)
   {
      SBO_temp_bucket.data[(i*30) + index] = 0;
@@ -94,8 +97,6 @@ void main ()
     SBO_temp_bucket.data[(temp_bucket_x_low * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id] += save_value;
   }
  
-  // [temp_bucket_x_high][temp_bucket_y_low][gl_WorkGroupID.x][InWarpIndex][0]
-
   currindex = SBO_temp_bucket.data[(temp_bucket_x_high * bucket_size * UBO_info.temp_bucket_y) + (temp_bucket_y_low * bucket_size) + core_id];
   {
 	const int save_value = int((temp_bucket_x_low != temp_bucket_x_high) && (currindex <= UBO_info.particles_per_core));

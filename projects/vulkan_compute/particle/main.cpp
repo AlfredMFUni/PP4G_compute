@@ -1985,7 +1985,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
                 .pWaitSemaphores = VK_NULL_HANDLE,
                 .pWaitDstStageMask = VK_NULL_HANDLE,
                 .commandBufferCount = 1u,
-                .pCommandBuffers = &command_buffer_compute,
+                .pCommandBuffers = &command_buffer_collision,
                 .signalSemaphoreCount = 0u,
                 .pSignalSemaphores = VK_NULL_HANDLE
               };
