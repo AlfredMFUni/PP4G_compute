@@ -1440,26 +1440,28 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               }
 
 
+              VkPipelineStageFlags compute_stage_flags = VkPipelineStageFlagBits::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
               // submit compute commands
               VkSubmitInfo const submit_info =
               {
-                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                //.pNext = VK_NULL_HANDLE,
-                .waitSemaphoreCount = 0u,
-                .pWaitSemaphores = VK_NULL_HANDLE,
-                .pWaitDstStageMask = VK_NULL_HANDLE,
-                .commandBufferCount = 1u,
-                .pCommandBuffers = &command_buffer_compute,
-                .signalSemaphoreCount = 1u,
-                .pSignalSemaphores = compute_finished_semaphore
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,         // sType;
+                //.pNext = VK_NULL_HANDLE,                      // pNext;
+                .waitSemaphoreCount = 0u,                       // waitSemaphoreCount;
+                .pWaitSemaphores = VK_NULL_HANDLE,              // pWaitSemaphores;
+                .pWaitDstStageMask = &compute_stage_flags,      // pWaitDstStageMask;
+                .commandBufferCount = 1u,                       // commandBufferCount;
+                .pCommandBuffers = &command_buffer_compute,     // pCommandBuffers;
+                .signalSemaphoreCount = 1u,                     // signalSemaphoreCount;
+                .pSignalSemaphores = compute_finished_semaphore // pSignalSemaphores;
               };
 
-              //if (!CHECK_VULKAN_RESULT(vkQueueSubmit(queue_compute, 1u, &submit_info,
-              //    fence_compute))) // fence to signal when complete
-              //{
-              //    DBG_ASSERT(false);
-              //    return -1;
-              //}
+              if (!CHECK_VULKAN_RESULT(vkQueueSubmit(queue_compute, 1u, &submit_info,
+                  fence_compute))) // fence to signal when complete
+              {
+                  DBG_ASSERT(false);
+                  return -1;
+              }
 
 
               //// wait for fence to be triggered via vkQueueSubmit (slow!)
@@ -1575,7 +1577,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
 
         // submit graphics commands
-        VkPipelineStageFlags const wait_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // look me up!
+        VkPipelineStageFlags const wait_stage_masks[2] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT}; // look me up!
         // TODO: fill in 'submit_info'
         // remember we must WAIT for 'swapchain_image_available_semaphore' semaphore to be triggered before we submit
         VkSubmitInfo const submit_info =
@@ -1584,11 +1586,11 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           //.pNext = VK_NULL_HANDLE,
           .waitSemaphoreCount = 2u,
           .pWaitSemaphores = render_queue_semaphores, // wait for these semaphores to be signalled before submitting command buffers
-          .pWaitDstStageMask = &wait_stage_mask,
+          .pWaitDstStageMask = wait_stage_masks,
           .commandBufferCount = 1u,
           .pCommandBuffers = &command_buffer_graphics,
           .signalSemaphoreCount = 0u,
-          .pSignalSemaphores = VK_NULL_HANDLE                     // semaphores to trigger when command buffer has finished executing
+          .pSignalSemaphores = VK_NULL_HANDLE         // semaphores to trigger when command buffer has finished executing
         };
 
         if (!CHECK_VULKAN_RESULT (vkQueueSubmit (queue_graphics, 1u, &submit_info,
@@ -1612,7 +1614,16 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
           return -1;
         }
 
-
+        // wait for compute fence to be triggered via vkQueueSubmit (slow!)
+        if (!CHECK_VULKAN_RESULT(vkWaitForFences(device,
+            1u,
+            &fence_compute,
+            VK_TRUE,
+            UINT64_MAX)))
+        {
+            DBG_ASSERT(false);
+            return -1;
+        }
       }
 
       if (!present ())
