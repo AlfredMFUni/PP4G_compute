@@ -159,22 +159,22 @@ constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vu
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 constexpr unsigned int PARTICLE_TEXTURE_SIZE = 8u;
 
-constexpr unsigned int NUM_PARTICLES = 1u << 12;
+constexpr unsigned int NUM_PARTICLES = 1u << 8u;
 
-constexpr unsigned int NUM_THREAD_GROUPS_COMPUTE_PARTICLES = 32u;
+constexpr unsigned int NUM_THREAD_GROUPS_COMPUTE_PARTICLES = 1u;
 constexpr unsigned int WARP_WIDTH = 32u;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
 constexpr unsigned int THREAD_GROUP_SIZE_COMPUTE_PARTICLE = IntCeilDiv((NUM_PARTICLES), (NUM_THREAD_GROUPS_COMPUTE_PARTICLES));
 constexpr unsigned int NUM_PARTICLES_PER_CORE = IntCeilDiv((THREAD_GROUP_SIZE_COMPUTE_PARTICLE), (WARP_WIDTH));
 
-constexpr int BOUNDS_X = -120, BOUNDS_Y = -67;
-constexpr unsigned int BOUNDS_WIDTH = 241u, BOUNDS_HEIGHT = 134u;
+constexpr int BOUNDS_X = -29, BOUNDS_Y = -16;
+constexpr unsigned int BOUNDS_WIDTH = 58u, BOUNDS_HEIGHT = 32u;
 constexpr float MAX_PARTICLE_SPEED = 1.f / (1u << 6u);
-constexpr float PARTICLE_SCALE = 1.f / (1u << 0u);
+constexpr float PARTICLE_SCALE = static_cast<float>(1u << 2u) / (1u << 0u);
 constexpr float DRAW_SCALING = 5.4f;
 constexpr float PARTICLE_SIZE = PARTICLE_TEXTURE_SIZE * PARTICLE_SCALE / DRAW_SCALING;
 
-constexpr unsigned int NUM_TEMP_BUCKETS_X = 21u, NUM_TEMP_BUCKETS_Y = 12u;
+constexpr unsigned int NUM_TEMP_BUCKETS_X = 5u, NUM_TEMP_BUCKETS_Y = 3u;
 constexpr unsigned int TEMP_BUCKET_SIZE = (NUM_PARTICLES_PER_CORE + 1) * WARP_WIDTH * NUM_THREAD_GROUPS_COMPUTE_PARTICLES;
 
 constexpr float BUCKET_DIM = PARTICLE_SIZE * 1.f;
