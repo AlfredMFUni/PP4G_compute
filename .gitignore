@@ -3,3 +3,6 @@ build_x64/
 packages/
 !packages/*.bat
 cmake/
+*.csv
+projects/vulkan_compute/Timer.h
+projects/vulkan_compute/Timer.cpp

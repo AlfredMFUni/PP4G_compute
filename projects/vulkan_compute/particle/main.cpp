@@ -139,6 +139,7 @@
 #include <cmath>                  // for std::ceilf
 #include <span>                   // for std::span
 #include <random>                 // for rng.
+#include "..\Timer.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR // tell vulkan we are on Windows platform
 #include <vulkan/vulkan.h>        // for everything vulkan
@@ -1373,9 +1374,12 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   // GRAPHICS RENDER
 
+  Timer_File t(100000);
   // GAME LOOP
   while (process_os_messages ())
   {
+
+      t.m_Restart();
     // UPDATE
     // COMPUTE DISPATCH
       {
@@ -1632,8 +1636,13 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         return -1;
       }
     }
+
+    t.m_Stop();
   }
 
+
+  const std::string filename = "semaphore";
+  t.m_PrintToFile(Timer::TimeUnits::Nanoseconds, filename);
 
   // RELEASE
   {

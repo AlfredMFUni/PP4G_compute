@@ -146,6 +146,7 @@
 #define NOMINMAX                  // prevent Windows macros defining their own min and max macros
 #include <Windows.h>              // for WinMain
 
+#include "../Timer.h"
 
 constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle_simd/sprite.vert.spv";
@@ -1050,6 +1051,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
       }
   }
 
+  Timer_File t(100000);
+
   const __m256 Zero = _mm256_set1_ps(0.f);
   const __m256 Minus_One = _mm256_set1_ps(-1.f);
   const __m256 Width = _mm256_set1_ps(bound_width);
@@ -1060,6 +1063,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   // GAME LOOP
   while (process_os_messages ())
   {
+      t.m_Restart();
     // UPDATE
     {
           const __m256 DeltaTime = _mm256_set1_ps(0.5f);
@@ -1256,15 +1260,18 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
         return -1;
       }
     }
+    t.m_Stop();
   }
 
+  const std::string filename = "Non_compute";
+  t.m_PrintToFile(Timer::TimeUnits::Nanoseconds, filename);
 
   // RELEASE
   {
     // GRAPHICS PIPELINE
     {
       release_vulkan_fences (1u, &fence_submit_graphics);
-      release_vulkan_semaphores (2u, render_queue_semaphores);
+      release_vulkan_semaphores (1u, render_queue_semaphores);
 
       release_vulkan_mesh (device, mesh_sprite);
 
