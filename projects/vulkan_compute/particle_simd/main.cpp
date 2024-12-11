@@ -148,21 +148,22 @@
 
 
 constexpr char const* WINDOW_TITLE = "vulkan_compute_texture";
-constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle/sprite.vert.spv";
-constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
+constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vulkan_compute_particle_simd/sprite.vert.spv";
+constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle_simd/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 
 constexpr unsigned int NUM_PARTICLES = 1u << 12;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
 
 constexpr float origin_x = -120, origin_y = -67.f, bound_width = 242, bound_height = 134.f;
-constexpr float MaxParticleSpeed = 1.f / (1u << 6u);
+constexpr float MaxParticleSpeed = 1.f / (1u << 2u);
 constexpr float particleScale = 1.f / (1u << 0u);
 
 
 struct compute_UBO_info_buffer
 {
     u32 num_particles;
+    f32 bounds[4u];
 };
 
 int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
@@ -242,7 +243,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   constexpr u32 NUM_SETS_GRAPHICS = 2u;
 
-  constexpr u32 NUM_SEMAPHORE_GRAPHICS = 2u;
+  constexpr u32 NUM_SEMAPHORE_GRAPHICS = 1u;
 
   constexpr u32 NUM_RESOURCES_GRAPHICS_SET_0 = 5u;
   constexpr u32 BINDING_ID_SET_0_UBO_CAMERA = 0u;
@@ -273,9 +274,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   vulkan_mesh mesh_sprite;
 
-  VkSemaphore render_queue_semaphores[NUM_SEMAPHORE_GRAPHICS] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+  VkSemaphore render_queue_semaphores[NUM_SEMAPHORE_GRAPHICS] = { VK_NULL_HANDLE };
   VkSemaphore* swapchain_image_available_semaphore = &render_queue_semaphores[0];
-  VkSemaphore* compute_finished_semaphore = &render_queue_semaphores[1];
   VkFence fence_submit_graphics = VK_NULL_HANDLE;
 
 
@@ -783,8 +783,13 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     if (!map_and_unmap_memory(device,
         buffer_info.memory, [](void* mapped_memory)
         {
-            u32* num_elements = (u32*)mapped_memory;
-            (*num_elements) = NUM_PARTICLES;
+            u32* u32_data = (u32*)mapped_memory;
+            f32* f32_data = (f32*)mapped_memory;
+            u32_data[0] = NUM_PARTICLES;
+            f32_data[1] = origin_x;
+            f32_data[2] = origin_y;
+            f32_data[3] = bound_width;
+            f32_data[4] = bound_height;
         }))
     {
         DBG_ASSERT(false);
@@ -984,7 +989,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   // create graphics sync objects
   // at least one per submit (can be reused if in loop)
   {
-    if (!create_vulkan_semaphores (2u, render_queue_semaphores))
+    if (!create_vulkan_semaphores (1u, render_queue_semaphores))
     {
       DBG_ASSERT (false);
       return -1;
@@ -1057,10 +1062,11 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   {
     // UPDATE
     {
-          for (u32 i = 0u; i < (NUM_PARTICLES >> 3u); ++i)
+          const __m256 DeltaTime = _mm256_set1_ps(0.5f);
+          for (unsigned int i = 0u; i < (NUM_PARTICLES >> 3u); ++i)
           {
-              X_pos[i] = _mm256_mul_ps(X_pos[i], X_vel[i]);
-              Y_pos[i] = _mm256_mul_ps(Y_pos[i], Y_vel[i]);
+              X_pos[i] = _mm256_add_ps(X_pos[i], _mm256_mul_ps(X_vel[i], DeltaTime));
+              Y_pos[i] = _mm256_add_ps(Y_pos[i], _mm256_mul_ps(Y_vel[i], DeltaTime));
 
               __m256 XBoundsMask = _mm256_or_ps(_mm256_cmp_ps(X_pos[i], Zero, LessThan),    _mm256_cmp_ps(X_pos[i], Width, GreaterThan));
               __m256 YBoundsMask = _mm256_or_ps(_mm256_cmp_ps(Y_pos[i], Zero, GreaterThan), _mm256_cmp_ps(Y_pos[i], Height, LessThan));
@@ -1078,6 +1084,8 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               Y_pos[i] = _mm256_max_ps(Y_pos[i], Zero);
               Y_pos[i] = _mm256_min_ps(Y_pos[i], Height);
           }
+
+
           if (!map_and_unmap_memory(device,
               buffer_pos_x.memory, [&X_pos](void* mapped_memory)
               {
@@ -1204,14 +1212,14 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
 
         // submit graphics commands
-        VkPipelineStageFlags const wait_stage_masks[2] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT}; // look me up!
+        VkPipelineStageFlags const wait_stage_masks[1] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // look me up!
         // TODO: fill in 'submit_info'
         // remember we must WAIT for 'swapchain_image_available_semaphore' semaphore to be triggered before we submit
         VkSubmitInfo const submit_info =
         {
           .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
           //.pNext = VK_NULL_HANDLE,
-          .waitSemaphoreCount = 2u,
+          .waitSemaphoreCount = 1u,
           .pWaitSemaphores = render_queue_semaphores, // wait for these semaphores to be signalled before submitting command buffers
           .pWaitDstStageMask = wait_stage_masks,
           .commandBufferCount = 1u,
