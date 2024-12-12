@@ -7,3 +7,4 @@ bin/Non_compute11-12-2024-23-06-27.csv
 *.csv
 projects/vulkan_compute/Timer.h
 projects/vulkan_compute/Timer.cpp
+*.lnk
