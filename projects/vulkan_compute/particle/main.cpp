@@ -154,7 +154,7 @@ constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vu
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 
-constexpr unsigned int NUM_PARTICLES = 1u << 12;
+constexpr unsigned int NUM_PARTICLES = 1u << 22;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
 
 constexpr float origin_x = -120, origin_y = -67.f, bound_width = 242, bound_height = 134.f;
@@ -1423,7 +1423,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
                       sizeof(compute_push_constants),        // size
                       &data);                                // pValues
 
-                  u32 ThreadGroup_x = 256u;
+                  u32 ThreadGroup_x = NUM_PARTICLES/256u;
 
                   vkCmdDispatch(command_buffer_compute,
                       ThreadGroup_x, 1u, 1u);
@@ -1641,7 +1641,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
   }
 
 
-  const std::string filename = "semaphore";
+  const std::string filename = "many_semaphore_release";
   t.m_PrintToFile(Timer::TimeUnits::Nanoseconds, filename);
 
   // RELEASE

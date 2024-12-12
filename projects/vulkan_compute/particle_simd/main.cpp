@@ -153,7 +153,7 @@ constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_VERT = "data/shaders/glsl/vu
 constexpr char const* COMPILED_GRAPHICS_SHADER_PATH_FRAG = "data/shaders/glsl/vulkan_compute_particle_simd/sprite.frag.spv";
 constexpr char const* TEXTURE_PATH = "data/textures/Particle.png";
 
-constexpr unsigned int NUM_PARTICLES = 1u << 12;
+constexpr unsigned int NUM_PARTICLES = 1u << 22;
 constexpr unsigned int DATA_SIZE = sizeof(u32);
 
 constexpr float origin_x = -120, origin_y = -67.f, bound_width = 242, bound_height = 134.f;
@@ -1005,10 +1005,10 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
   // GRAPHICS RENDER
 
-  __m256* X_pos = reinterpret_cast<__m256*>(malloc(sizeof(f32) * NUM_PARTICLES));
-  __m256* Y_pos = reinterpret_cast<__m256*>(malloc(sizeof(f32) * NUM_PARTICLES));
-  __m256* X_vel = reinterpret_cast<__m256*>(malloc(sizeof(f32) * NUM_PARTICLES));
-  __m256* Y_vel = reinterpret_cast<__m256*>(malloc(sizeof(f32) * NUM_PARTICLES));
+  f32* X_pos = reinterpret_cast<f32*>(malloc(sizeof(f32) * NUM_PARTICLES));
+  f32* Y_pos = reinterpret_cast<f32*>(malloc(sizeof(f32) * NUM_PARTICLES));
+  f32* X_vel = reinterpret_cast<f32*>(malloc(sizeof(f32) * NUM_PARTICLES));
+  f32* Y_vel = reinterpret_cast<f32*>(malloc(sizeof(f32) * NUM_PARTICLES));
 
   {
       std::random_device rd;
@@ -1019,82 +1019,72 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
 
       
       {
-          f32* data = (f32*)X_vel;
           for (u32 i = 0u; i < NUM_PARTICLES; ++i)
           {
-              data[i] = Vel_Dist(re);
+              X_vel[i] = Vel_Dist(re);
           }
       }
 
       {
-          f32* data = (f32*)Y_vel;
           for (u32 i = 0u; i < NUM_PARTICLES; ++i)
           {
-              data[i] = Vel_Dist(re);
+              Y_vel[i] = Vel_Dist(re);
           }
       }
 
       {
-          f32* data = (f32*)X_pos;
           for (u32 i = 0u; i < NUM_PARTICLES; ++i)
           {
-              data[i] = X_Pos_Dist(re);
+              X_pos[i] = X_Pos_Dist(re);
           }
       }
 
       {
-          f32* data = (f32*)Y_pos;
           for (u32 i = 0u; i < NUM_PARTICLES; ++i)
           {
-              data[i] = Y_Pos_Dist(re);
+              Y_pos[i] = Y_Pos_Dist(re);
           }
       }
   }
 
   Timer_File t(100000);
 
-  const __m256 Zero = _mm256_set1_ps(0.f);
-  const __m256 Minus_One = _mm256_set1_ps(-1.f);
-  const __m256 Width = _mm256_set1_ps(bound_width);
-  const __m256 Height = _mm256_set1_ps(bound_height);
-
-  constexpr char LessThan(1);
-  constexpr char GreaterThan(14);
   // GAME LOOP
   while (process_os_messages ())
   {
       t.m_Restart();
     // UPDATE
     {
-          const __m256 DeltaTime = _mm256_set1_ps(0.5f);
-          for (unsigned int i = 0u; i < (NUM_PARTICLES >> 3u); ++i)
+          constexpr f32 DeltaTime = (0.5f);
+          for (unsigned int i = 0u; i < (NUM_PARTICLES); ++i)
           {
-              X_pos[i] = _mm256_add_ps(X_pos[i], _mm256_mul_ps(X_vel[i], DeltaTime));
-              Y_pos[i] = _mm256_add_ps(Y_pos[i], _mm256_mul_ps(Y_vel[i], DeltaTime));
+              X_pos[i] += X_vel[i] * DeltaTime;
+              Y_pos[i] += Y_vel[i] * DeltaTime;
 
-              __m256 XBoundsMask = _mm256_or_ps(_mm256_cmp_ps(X_pos[i], Zero, LessThan),    _mm256_cmp_ps(X_pos[i], Width, GreaterThan));
-              __m256 YBoundsMask = _mm256_or_ps(_mm256_cmp_ps(Y_pos[i], Zero, GreaterThan), _mm256_cmp_ps(Y_pos[i], Height, LessThan));
-
-              __m256 XInVel = _mm256_mul_ps(X_vel[i], Minus_One);
-              __m256 YInVel = _mm256_mul_ps(Y_vel[i], Minus_One);
-
-              X_vel[i] = _mm256_blendv_ps(X_vel[i], XInVel, XBoundsMask);
-              Y_vel[i] = _mm256_blendv_ps(Y_vel[i], YInVel, YBoundsMask);
+              if (X_pos[i] < 0.f || X_pos[i] > bound_width)
+              {
+                  X_vel[i] = -X_vel[i];
+              }
 
 
-              X_pos[i] = _mm256_max_ps(X_pos[i], Zero);
-              X_pos[i] = _mm256_min_ps(X_pos[i], Width);
+              if (Y_pos[i] < 0.f || Y_pos[i] > bound_height)
+              {
+                  Y_vel[i] = -Y_vel[i];
+              }
 
-              Y_pos[i] = _mm256_max_ps(Y_pos[i], Zero);
-              Y_pos[i] = _mm256_min_ps(Y_pos[i], Height);
+              X_pos[i] = max(X_pos[i], 0.f);
+              X_pos[i] = min(X_pos[i], bound_width);
+
+              Y_pos[i] = max(Y_pos[i], 0.f);
+              Y_pos[i] = min(Y_pos[i], bound_height);
           }
 
 
           if (!map_and_unmap_memory(device,
               buffer_pos_x.memory, [&X_pos](void* mapped_memory)
               {
-                  __m256* data = (__m256*)mapped_memory;
-                  for (u32 i = 0u; i < (NUM_PARTICLES >> 3u); ++i)
+                  f32* data = (f32*)mapped_memory;
+                  for (u32 i = 0u; i < (NUM_PARTICLES); ++i)
                   {
                       data[i] = X_pos[i];
                   }
@@ -1104,10 +1094,10 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
               return -1;
           }
           if (!map_and_unmap_memory(device,
-              buffer_pos_x.memory, [&Y_pos](void* mapped_memory)
+              buffer_pos_y.memory, [&Y_pos](void* mapped_memory)
               {
-                  __m256* data = (__m256*)mapped_memory;
-                  for (u32 i = 0u; i < (NUM_PARTICLES >> 3u); ++i)
+                  f32* data = (f32*)mapped_memory;
+                  for (u32 i = 0u; i < (NUM_PARTICLES); ++i)
                   {
                       data[i] = Y_pos[i];
                   }
@@ -1263,7 +1253,7 @@ int WINAPI WinMain (_In_ HINSTANCE/* hInstance*/,
     t.m_Stop();
   }
 
-  const std::string filename = "Non_compute";
+  const std::string filename = "many_non_compute_release";
   t.m_PrintToFile(Timer::TimeUnits::Nanoseconds, filename);
 
   // RELEASE
