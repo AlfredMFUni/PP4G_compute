@@ -126,7 +126,7 @@ void Timer_File::m_PrintToFile(TimeUnits i_Units, const std::string& i_filePrefi
     }
     std::string unitName;
     UnitsToString(i_Units, unitName);
-    file << "Frame,Frame Duration in " << unitName << "\n";
+    file << "Frame,Frame Duration in " << unitName << ",,,,=average(b2:b10002),=avedev(b2:b10002)\n";
     for (int i = 0; i < capacity; i++)
     {
         file << i << "," << m_GetSpecificTime<int>(i_Units, i) << "\n";
